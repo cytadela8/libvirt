@@ -1388,6 +1388,14 @@
         </element>
       </optional>
       <optional>
+        <element name="script">
+          <attribute name="path">
+            <ref name="filePath"/>
+          </attribute>
+          <empty/>
+        </element>
+      </optional>
+      <optional>
         <element name="readonly">
           <empty/>
         </element>

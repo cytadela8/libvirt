@@ -575,6 +575,7 @@ struct _virDomainDiskDef {
     unsigned int queues;
     int model; /* enum virDomainDiskModel */
     virDomainVirtioOptionsPtr virtio;
+    char *script;
 };
 
 

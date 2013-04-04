@@ -2108,6 +2108,7 @@ virDomainDiskDefFree(virDomainDiskDefPtr def)
     VIR_FREE(def->domain_name);
     VIR_FREE(def->blkdeviotune.group_name);
     VIR_FREE(def->virtio);
+    VIR_FREE(def->script);
     virDomainDeviceInfoClear(&def->info);
     virObjectUnref(def->privateData);
 
@@ -10068,6 +10069,7 @@ virDomainDiskDefParseXML(virDomainXMLOptionPtr xmlopt,
     g_autofree char *vendor = NULL;
     g_autofree char *product = NULL;
     g_autofree char *domain_name = NULL;
+    g_autofree char *script = NULL;
 
     if (!(def = virDomainDiskDefNew(xmlopt)))
         return NULL;
@@ -10169,6 +10171,9 @@ virDomainDiskDefParseXML(virDomainXMLOptionPtr xmlopt,
         } else if (virXMLNodeNameEqual(cur, "geometry")) {
             if (virDomainDiskDefGeometryParse(def, cur) < 0)
                 goto error;
+        } else if (!script &&
+                   virXMLNodeNameEqual(cur, "script")) {
+            script = virXMLPropString(cur, "path");
         } else if (virXMLNodeNameEqual(cur, "blockio")) {
             logical_block_size =
                 virXMLPropString(cur, "logical_block_size");
@@ -10434,6 +10439,7 @@ virDomainDiskDefParseXML(virDomainXMLOptionPtr xmlopt,
     if (encryption)
         def->src->encryption = g_steal_pointer(&encryption);
     def->domain_name = g_steal_pointer(&domain_name);
+    def->script = g_steal_pointer(&script);
     def->serial = g_steal_pointer(&serial);
     def->wwn = g_steal_pointer(&wwn);
     def->vendor = g_steal_pointer(&vendor);
@@ -24599,6 +24605,7 @@ virDomainDiskDefFormat(virBufferPtr buf,
         return -1;
 
     virBufferEscapeString(buf, "<backenddomain name='%s'/>\n", def->domain_name);
+    virBufferEscapeString(buf, "<script path='%s'/>\n", def->script);
 
     virDomainDiskGeometryDefFormat(buf, def);
     virDomainDiskBlockIoDefFormat(buf, def);
