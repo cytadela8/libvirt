@@ -1003,6 +1003,8 @@ libxlMakeDisk(virDomainDiskDefPtr l_disk, libxl_device_disk *x_disk)
 
     x_disk->vdev = g_strdup(l_disk->dst);
 
+    x_disk->script = g_strdup(l_disk->script);
+
     if (driver) {
         if (STREQ(driver, "tap") || STREQ(driver, "tap2")) {
             switch (format) {
