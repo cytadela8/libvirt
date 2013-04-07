@@ -1101,6 +1101,11 @@ VIR_ENUM_IMPL(virDomainDiskTray,
               "open",
 );
 
+VIR_ENUM_IMPL(virDomainEmulatorType,
+              VIR_DOMAIN_EMULATOR_TYPE_LAST,
+              "qemu",
+              "stubdom");
+
 VIR_ENUM_IMPL(virDomainRNGModel,
               VIR_DOMAIN_RNG_MODEL_LAST,
               "virtio",
@@ -20841,6 +20846,17 @@ virDomainDefParseXML(xmlDocPtr xml,
     if (virDomainDefParseBootOptions(def, ctxt) < 0)
         goto error;
 
+    def->emulator = virXPathString("string(./devices/emulator[1])", ctxt);
+    if ((tmp = virXPathString("string(./devices/emulator/@type)", ctxt))) {
+        def->emulator_type = virDomainEmulatorTypeTypeFromString(tmp);
+        VIR_FREE(tmp);
+        if (def->emulator_type < 0) {
+            virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
+                           _("Unknown emulator type '%s'"), tmp);
+        }
+    }
+    def->emulator_cmdline = virXPathString("string(./devices/emulator/@cmdline)", ctxt);
+
     /* analysis of the disk devices */
     if ((n = virXPathNodeSet("./devices/disk", ctxt, &nodes)) < 0)
         goto error;
@@ -23275,6 +23291,14 @@ virDomainDefCheckABIStabilityFlags(virDomainDefPtr src,
                        _("Target domain SMBIOS mode %s does not match source %s"),
                        virDomainSmbiosModeTypeToString(dst->os.smbios_mode),
                        virDomainSmbiosModeTypeToString(src->os.smbios_mode));
+        goto error;
+    }
+
+    if (src->emulator_type != dst->emulator_type) {
+        virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
+                _("Target domain emulator type %s does not match source %s"),
+                virDomainEmulatorTypeTypeToString(dst->emulator_type),
+                virDomainEmulatorTypeTypeToString(src->emulator_type));
         goto error;
     }
 
@@ -28730,8 +28754,21 @@ virDomainDefFormatInternalSetRootName(virDomainDefPtr def,
     virBufferAddLit(buf, "<devices>\n");
     virBufferAdjustIndent(buf, 2);
 
-    virBufferEscapeString(buf, "<emulator>%s</emulator>\n",
-                          def->emulator);
+    if (def->emulator ||
+            def->emulator_type != VIR_DOMAIN_EMULATOR_TYPE_DEFAULT) {
+        virBufferAddLit(buf, "<emulator");
+        if (def->emulator_type != VIR_DOMAIN_EMULATOR_TYPE_DEFAULT) {
+            virBufferAsprintf(buf, " type='%s'",
+                              virDomainEmulatorTypeTypeToString(def->emulator_type));
+        }
+        virBufferEscapeString(buf, " cmdline='%s'", def->emulator_cmdline);
+        if (!def->emulator) {
+            virBufferAddLit(buf, "/>\n");
+        } else {
+            virBufferEscapeString(buf, ">%s</emulator>\n",
+                                  def->emulator);
+        }
+    }
 
     for (n = 0; n < def->ndisks; n++)
         if (virDomainDiskDefFormat(buf, def->disks[n], flags, xmlopt) < 0)

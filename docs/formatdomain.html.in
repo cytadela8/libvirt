@@ -2748,6 +2748,23 @@
         The <a href="formatcaps.html">capabilities XML</a> specifies
         the recommended default emulator to use for each particular
         domain type / architecture combination.
+
+        <span class="since">Since 1.2.13</span>, the <code>emulator</code>
+        element may contain <code>type</code> attribute. Possible values are:
+        <dl>
+          <dt><code>type='default'</code></dt>
+          <dd>Equivalent to not setting <code>type</code> attribute at all.
+          </dd>
+
+          <dt><code>type='stubdom'</code></dt>
+          <dd>Launch emulator in stub domain (Xen only). The emulator path
+          still indicate which binary is used in dom0 - there is no control
+          which binary is used as a stub domain.
+          </dd>
+        </dl>
+        <span class="since">Since 1.2.20</span>, the <code>emulator</code>
+        element may contain <code>cmdline</code> attribute with custom command
+        line arguments.
       </dd>
     </dl>
 

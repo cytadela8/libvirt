@@ -3205,7 +3205,33 @@
     -->
   <define name="emulator">
     <element name="emulator">
-      <ref name="absFilePath"/>
+      <choice>
+        <group>
+          <optional>
+            <attribute name="type">
+              <choice>
+                <value>qemu</value>
+                <value>stubdom</value>
+              </choice>
+            </attribute>
+          </optional>
+          <optional>
+            <attribute name="cmdline">
+              <text/>
+            </attribute>
+          </optional>
+          <ref name="absFilePath"/>
+        </group>
+        <group>
+          <attribute name="type">
+            <choice>
+              <value>qemu</value>
+              <value>stubdom</value>
+            </choice>
+          </attribute>
+          <empty/>
+        </group>
+      </choice>
     </element>
   </define>
   <!--

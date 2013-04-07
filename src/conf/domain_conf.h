@@ -2097,6 +2097,13 @@ struct _virBlkioDevice {
 };
 
 typedef enum {
+    VIR_DOMAIN_EMULATOR_TYPE_DEFAULT,
+    VIR_DOMAIN_EMULATOR_TYPE_STUBDOM,
+
+    VIR_DOMAIN_EMULATOR_TYPE_LAST
+} virDomainEmulatorType;
+
+typedef enum {
     VIR_DOMAIN_RNG_MODEL_VIRTIO,
     VIR_DOMAIN_RNG_MODEL_VIRTIO_TRANSITIONAL,
     VIR_DOMAIN_RNG_MODEL_VIRTIO_NON_TRANSITIONAL,
@@ -2421,6 +2428,8 @@ struct _virDomainDef {
 
     virDomainOSDef os;
     char *emulator;
+    virDomainEmulatorType emulator_type;
+    char *emulator_cmdline;
     /* Most {caps_,hyperv_,kvm_,}feature options utilize a virTristateSwitch
      * to handle support. A few assign specific data values to the option.
      * See virDomainDefFeaturesCheckABIStability() for details. */
@@ -3467,6 +3476,7 @@ VIR_ENUM_DECL(virDomainGraphicsSpiceMouseMode);
 VIR_ENUM_DECL(virDomainGraphicsVNCSharePolicy);
 VIR_ENUM_DECL(virDomainHyperv);
 VIR_ENUM_DECL(virDomainKVM);
+VIR_ENUM_DECL(virDomainEmulatorType);
 VIR_ENUM_DECL(virDomainMsrsUnknown);
 VIR_ENUM_DECL(virDomainRNGModel);
 VIR_ENUM_DECL(virDomainRNGBackend);
