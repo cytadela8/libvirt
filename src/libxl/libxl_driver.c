@@ -1959,11 +1959,6 @@ libxlDomainRestoreFlags(virConnectPtr conn, const char *from,
 #endif
 
     virCheckFlags(VIR_DOMAIN_SAVE_PAUSED, -1);
-    if (dxml) {
-        virReportError(VIR_ERR_ARGUMENT_UNSUPPORTED, "%s",
-                       _("xml modification unsupported"));
-        return -1;
-    }
 
     fd = libxlDomainSaveImageOpen(driver, cfg, from, &def, &hdr);
     if (fd < 0)
@@ -1971,6 +1966,18 @@ libxlDomainRestoreFlags(virConnectPtr conn, const char *from,
 
     if (virDomainRestoreFlagsEnsureACL(conn, def) < 0)
         goto cleanup;
+
+    if (dxml) {
+        virDomainDefPtr def2 = NULL;
+
+        if (!(def2 = virDomainDefParseString(dxml,
+                                             driver->xmlopt, NULL,
+                                             VIR_DOMAIN_DEF_PARSE_INACTIVE))) {
+            goto cleanup;
+        }
+        virDomainDefFree(def);
+        def = def2;
+    }
 
     if (!(vm = virDomainObjListAdd(driver->domains, def,
                                    driver->xmlopt,
