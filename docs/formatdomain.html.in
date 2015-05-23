@@ -4892,6 +4892,9 @@
             or hot-plugging the device and <code>virNodeDeviceReAttach</code>
             (or <code>virsh nodedev-reattach</code>) after hot-unplug or
             stopping the guest.
+            Additionally when <code>strictreset</code> is "no", device will
+            be assigned to the domain, even when reset fails. The default is
+            "yes".
           </dd>
           <dt><code>scsi</code></dt>
           <dd>For SCSI devices, user is responsible to make sure the device

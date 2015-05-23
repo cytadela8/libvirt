@@ -2850,6 +2850,11 @@
               <ref name="virYesNo"/>
             </attribute>
           </optional>
+          <optional>
+            <attribute name="nostrictreset">
+              <ref name="virYesNo"/>
+            </attribute>
+          </optional>
           <interleave>
             <element name="source">
               <optional>

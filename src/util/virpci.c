@@ -79,7 +79,7 @@ struct _virPCIDevice {
     bool          has_flr;
     bool          has_pm_reset;
     bool          managed;
-
+    bool          strictreset;
     virPCIStubDriver stubDriver;
 
     /* used by reattach function */
@@ -987,6 +987,9 @@ virPCIDeviceReset(virPCIDevicePtr dev,
                        dev->name,
                        err ? err->message :
                        _("no FLR, PM reset or bus reset available"));
+        if (!dev->strictreset)
+            /* do not fail */
+            ret = 0;
     }
 
  cleanup:
@@ -1383,6 +1386,7 @@ virPCIDeviceNew(unsigned int domain,
     dev->address.bus = bus;
     dev->address.slot = slot;
     dev->address.function = function;
+    dev->strictreset    = true;
 
     dev->name = g_strdup_printf(VIR_PCI_DEVICE_ADDRESS_FMT, domain, bus, slot,
                                 function);
@@ -1496,6 +1500,18 @@ bool
 virPCIDeviceGetManaged(virPCIDevicePtr dev)
 {
     return dev->managed;
+}
+
+void
+virPCIDeviceSetStrictReset(virPCIDevicePtr dev, bool strictreset)
+{
+    dev->strictreset = strictreset;
+}
+
+unsigned int
+virPCIDeviceGetStrictReset(virPCIDevicePtr dev)
+{
+    return dev->strictreset;
 }
 
 void

@@ -255,6 +255,8 @@ virHostdevGetPCIHostDevice(const virDomainHostdevDef *hostdev,
         return -1;
     }
 
+    virPCIDeviceSetStrictReset(actual, !hostdev->nostrictreset);
+
     *pci = g_steal_pointer(&actual);
     return 0;
 }

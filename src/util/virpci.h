@@ -132,6 +132,8 @@ bool virPCIDeviceGetManaged(virPCIDevice *dev);
 void virPCIDeviceSetStubDriver(virPCIDevicePtr dev,
                                virPCIStubDriver driver);
 virPCIStubDriver virPCIDeviceGetStubDriver(virPCIDevicePtr dev);
+void virPCIDeviceSetStrictReset(virPCIDevice *dev, bool strictreset);
+unsigned int virPCIDeviceGetStrictReset(virPCIDevicePtr dev);
 virPCIDeviceAddressPtr virPCIDeviceGetAddress(virPCIDevicePtr dev);
 int virPCIDeviceSetUsedBy(virPCIDevice *dev,
                           const char *drv_name,
