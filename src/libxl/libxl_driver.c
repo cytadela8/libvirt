@@ -1173,6 +1173,15 @@ libxlDomainSuspend(virDomainPtr dom)
         goto endjob;
 
     if (virDomainObjGetState(vm, NULL) != VIR_DOMAIN_PAUSED) {
+        int stubdom_domid = libxl_get_stubdom_id(cfg->ctx, vm->def->id);
+        if (stubdom_domid) {
+            if (libxl_domain_pause(cfg->ctx, stubdom_domid) != 0) {
+                virReportError(VIR_ERR_INTERNAL_ERROR,
+                               _("Failed to suspend domain '%d' with libxenlight"),
+                               stubdom_domid);
+                goto endjob;
+            }
+        }
         if (libxl_domain_pause(cfg->ctx, vm->def->id) != 0) {
             virReportError(VIR_ERR_INTERNAL_ERROR,
                            _("Failed to suspend domain '%d' with libxenlight"),
@@ -1209,6 +1218,8 @@ libxlDomainResume(virDomainPtr dom)
     libxlDriverConfigPtr cfg = libxlDriverConfigGet(driver);
     virDomainObjPtr vm;
     virObjectEventPtr event = NULL;
+    libxl_dominfo d_info;
+    int stubdom_domid;
     int ret = -1;
 
     if (!(vm = libxlDomObjFromDomain(dom)))
@@ -1226,11 +1237,30 @@ libxlDomainResume(virDomainPtr dom)
         goto endjob;
 
     if (virDomainObjGetState(vm, NULL) == VIR_DOMAIN_PAUSED) {
+        stubdom_domid = libxl_get_stubdom_id(cfg->ctx, vm->def->id);
         if (libxl_domain_unpause(cfg->ctx, vm->def->id) != 0) {
             virReportError(VIR_ERR_INTERNAL_ERROR,
                            _("Failed to resume domain '%d' with libxenlight"),
                            vm->def->id);
             goto endjob;
+        }
+        if (stubdom_domid) {
+            /* stubdomain may not be paused, for example in case of
+             * virCreateWithFlags(..., VIR_DOMAIN_START_PAUSED), so first check
+             * for that
+             */
+            if (libxl_domain_info(cfg->ctx, &d_info, stubdom_domid) != 0) {
+                virReportError(VIR_ERR_INTERNAL_ERROR,
+                               _("Failed to get '%d' stubdomain state with libxenlight"),
+                               stubdom_domid);
+                goto endjob;
+            }
+            if (d_info.paused && libxl_domain_unpause(cfg->ctx, stubdom_domid) != 0) {
+                virReportError(VIR_ERR_INTERNAL_ERROR,
+                               _("Failed to resume domain '%d' with libxenlight"),
+                               stubdom_domid);
+                goto endjob;
+            }
         }
 
         virDomainObjSetState(vm, VIR_DOMAIN_RUNNING,
