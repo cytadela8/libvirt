@@ -2259,6 +2259,9 @@ libxlMakePCI(virDomainHostdevDefPtr hostdev, libxl_device_pci *pcidev)
     pcidev->bus = pcisrc->addr.bus;
     pcidev->dev = pcisrc->addr.slot;
     pcidev->func = pcisrc->addr.function;
+    /* there is no LIBXL_HAVE_xxx for this field... */
+    if (hostdev->nostrictreset)
+        pcidev->rdm_policy = LIBXL_RDM_RESERVE_POLICY_RELAXED;
 
     return 0;
 }
