@@ -5191,6 +5191,7 @@ qemuDomainDefValidateFeatures(const virDomainDef *def,
             }
             break;
 
+        case VIR_DOMAIN_FEATURE_XEN:
         case VIR_DOMAIN_FEATURE_ACPI:
         case VIR_DOMAIN_FEATURE_APIC:
         case VIR_DOMAIN_FEATURE_PAE:
