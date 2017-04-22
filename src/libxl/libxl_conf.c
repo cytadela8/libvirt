@@ -567,6 +567,11 @@ libxlMakeDomBuildInfo(virDomainDefPtr def,
             b_info->device_model = g_strdup(def->emulator);
 
             b_info->device_model_version = libxlDomainGetEmulatorType(def);
+        } else {
+            if (def->emulator_type == VIR_DOMAIN_EMULATOR_TYPE_STUBDOM)
+                b_info->device_model_version = LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN_TRADITIONAL;
+            else if (def->emulator_type == VIR_DOMAIN_EMULATOR_TYPE_STUBDOM_LINUX)
+                b_info->device_model_version = LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN;
         }
 
         /* In case of stubdom there will be two qemu instances:
@@ -575,7 +580,8 @@ libxlMakeDomBuildInfo(virDomainDefPtr def,
          * Emulator path control only the second one. It makes a perfect sense
          * to use <emulator type='stubdom'/> (yes, without emulator path).
          */
-        if (def->emulator_type == VIR_DOMAIN_EMULATOR_TYPE_STUBDOM)
+        if (def->emulator_type == VIR_DOMAIN_EMULATOR_TYPE_STUBDOM ||
+            def->emulator_type == VIR_DOMAIN_EMULATOR_TYPE_STUBDOM_LINUX)
             libxl_defbool_set(&b_info->device_model_stubdomain, 1);
 
         if (def->emulator_cmdline && def->emulator_cmdline[0]) {

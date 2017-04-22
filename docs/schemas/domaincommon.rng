@@ -3217,6 +3217,7 @@
               <choice>
                 <value>qemu</value>
                 <value>stubdom</value>
+                <value>stubdom-linux</value>
               </choice>
             </attribute>
           </optional>
@@ -3232,6 +3233,7 @@
             <choice>
               <value>qemu</value>
               <value>stubdom</value>
+              <value>stubdom-linux</value>
             </choice>
           </attribute>
           <empty/>

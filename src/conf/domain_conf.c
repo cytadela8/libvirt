@@ -1110,7 +1110,8 @@ VIR_ENUM_IMPL(virDomainDiskTray,
 VIR_ENUM_IMPL(virDomainEmulatorType,
               VIR_DOMAIN_EMULATOR_TYPE_LAST,
               "qemu",
-              "stubdom");
+              "stubdom",
+              "stubdom-linux");
 
 VIR_ENUM_IMPL(virDomainRNGModel,
               VIR_DOMAIN_RNG_MODEL_LAST,
