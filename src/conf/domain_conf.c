@@ -20953,6 +20953,17 @@ virDomainDefParseXML(xmlDocPtr xml,
     }
     def->emulator_cmdline = virXPathString("string(./devices/emulator/@cmdline)", ctxt);
 
+    n = virXPathULong("string(./devices/emulator/@memory)",
+                      ctxt,
+                      &def->emulator_memory);
+    if (n == -2) {
+        virReportError(VIR_ERR_XML_ERROR, "%s",
+                _("emulator memory (in KiB) must be an integer"));
+        goto error;
+    } else if (n < 0) {
+        def->emulator_memory = 0;
+    }
+
     /* analysis of the disk devices */
     if ((n = virXPathNodeSet("./devices/disk", ctxt, &nodes)) < 0)
         goto error;
@@ -23420,6 +23431,14 @@ virDomainDefCheckABIStabilityFlags(virDomainDefPtr src,
                 _("Target domain emulator type %s does not match source %s"),
                 virDomainEmulatorTypeTypeToString(dst->emulator_type),
                 virDomainEmulatorTypeTypeToString(src->emulator_type));
+        goto error;
+    }
+
+    if (src->emulator_memory != dst->emulator_memory) {
+        virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
+                _("Target domain emulator memory size %lu does not match source %lu"),
+                dst->emulator_memory,
+                src->emulator_memory);
         goto error;
     }
 
@@ -28921,6 +28940,8 @@ virDomainDefFormatInternalSetRootName(virDomainDefPtr def,
             virBufferAsprintf(buf, " type='%s'",
                               virDomainEmulatorTypeTypeToString(def->emulator_type));
         }
+        if (def->emulator_memory != 0)
+            virBufferAsprintf(buf, " memory='%lu'", def->emulator_memory);
         virBufferEscapeString(buf, " cmdline='%s'", def->emulator_cmdline);
         if (!def->emulator) {
             virBufferAddLit(buf, "/>\n");

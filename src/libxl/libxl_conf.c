@@ -592,6 +592,9 @@ libxlMakeDomBuildInfo(virDomainDefPtr def,
             }
         }
 
+        if (def->emulator_memory != 0)
+            b_info->stubdomain_memkb = def->emulator_memory;
+
         if (def->nserials) {
             if (def->nserials == 1) {
                 if (libxlMakeChrdevStr(def->serials[0], &b_info->u.hvm.serial) <

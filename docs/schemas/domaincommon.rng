@@ -3226,6 +3226,11 @@
               <text/>
             </attribute>
           </optional>
+          <optional>
+            <attribute name="memory">
+              <ref name="memoryKB"/>
+            </attribute>
+          </optional>
           <ref name="absFilePath"/>
         </group>
         <group>
@@ -3236,6 +3241,11 @@
               <value>stubdom-linux</value>
             </choice>
           </attribute>
+          <optional>
+            <attribute name="memory">
+              <ref name="memoryKB"/>
+            </attribute>
+          </optional>
           <empty/>
         </group>
       </choice>

@@ -2444,6 +2444,7 @@ struct _virDomainDef {
     char *emulator;
     virDomainEmulatorType emulator_type;
     char *emulator_cmdline;
+    unsigned long emulator_memory;
     /* Most {caps_,hyperv_,kvm_,}feature options utilize a virTristateSwitch
      * to handle support. A few assign specific data values to the option.
      * See virDomainDefFeaturesCheckABIStability() for details. */
