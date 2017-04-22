@@ -8024,6 +8024,7 @@ qemuDomainDeviceDefValidateGraphics(const virDomainGraphicsDef *graphics,
 
         break;
     case VIR_DOMAIN_GRAPHICS_TYPE_RDP:
+    case VIR_DOMAIN_GRAPHICS_TYPE_QUBES:
     case VIR_DOMAIN_GRAPHICS_TYPE_DESKTOP:
         virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
                        _("unsupported graphics type '%s'"),

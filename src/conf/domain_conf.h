@@ -1459,6 +1459,7 @@ typedef enum {
     VIR_DOMAIN_GRAPHICS_TYPE_VNC,
     VIR_DOMAIN_GRAPHICS_TYPE_RDP,
     VIR_DOMAIN_GRAPHICS_TYPE_DESKTOP,
+    VIR_DOMAIN_GRAPHICS_TYPE_QUBES,
     VIR_DOMAIN_GRAPHICS_TYPE_SPICE,
     VIR_DOMAIN_GRAPHICS_TYPE_EGL_HEADLESS,
 
@@ -1639,6 +1640,10 @@ struct _virDomainGraphicsDef {
             virTristateBool gl;
             char *rendernode;
         } spice;
+        struct {
+            char *domain;
+            int log_level;
+        } qubes_gui;
         struct {
             char *rendernode;
         } egl_headless;

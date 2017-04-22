@@ -796,6 +796,7 @@ VIR_ENUM_IMPL(virDomainGraphics,
               "vnc",
               "rdp",
               "desktop",
+              "qubes",
               "spice",
               "egl-headless",
 );
@@ -1729,6 +1730,10 @@ void virDomainGraphicsDefFree(virDomainGraphicsDefPtr def)
 
     case VIR_DOMAIN_GRAPHICS_TYPE_DESKTOP:
         VIR_FREE(def->data.desktop.display);
+        break;
+
+    case VIR_DOMAIN_GRAPHICS_TYPE_QUBES:
+        VIR_FREE(def->data.qubes_gui.domain);
         break;
 
     case VIR_DOMAIN_GRAPHICS_TYPE_SPICE:
@@ -14156,6 +14161,30 @@ virDomainGraphicsDefParseXMLDesktop(virDomainGraphicsDefPtr def,
     return 0;
 }
 
+static int virDomainGraphicsDefParseXMLQubes(virDomainGraphicsDefPtr def,
+                                             xmlNodePtr node)
+{
+    int ret = -1;
+    char *log_level = virXMLPropString(node, "log_level");
+
+    if (log_level) {
+        if (virStrToLong_i(log_level, NULL, 10,
+                           &def->data.qubes_gui.log_level) < 0) {
+            virReportError(VIR_ERR_INTERNAL_ERROR,
+                           _("cannot parse Qubes GUI log_level %s"), log_level);
+            goto error;
+        }
+    } else {
+        def->data.qubes_gui.log_level = 0;
+    }
+
+    def->data.qubes_gui.domain = virXMLPropString(node, "domain");
+
+    ret = 0;
+ error:
+    VIR_FREE(log_level);
+    return ret;
+}
 
 static int
 virDomainGraphicsDefParseXMLSpice(virDomainGraphicsDefPtr def,
@@ -14527,6 +14556,10 @@ virDomainGraphicsDefParseXML(virDomainXMLOptionPtr xmlopt,
         break;
     case VIR_DOMAIN_GRAPHICS_TYPE_DESKTOP:
         if (virDomainGraphicsDefParseXMLDesktop(def, node) < 0)
+            goto error;
+        break;
+    case VIR_DOMAIN_GRAPHICS_TYPE_QUBES:
+        if (virDomainGraphicsDefParseXMLQubes(def, node) < 0)
             goto error;
         break;
     case VIR_DOMAIN_GRAPHICS_TYPE_SPICE:
@@ -27146,6 +27179,14 @@ virDomainGraphicsDefFormat(virBufferPtr buf,
 
         break;
 
+    case VIR_DOMAIN_GRAPHICS_TYPE_QUBES:
+        if (def->data.qubes_gui.domain)
+            virBufferEscapeString(buf, " domain='%s'",
+                                  def->data.qubes_gui.domain);
+        virBufferAsprintf(buf, " log_level='%d'",
+                          def->data.qubes_gui.log_level);
+        break;
+
     case VIR_DOMAIN_GRAPHICS_TYPE_SPICE:
         if (!glisten) {
             virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
@@ -31672,6 +31713,7 @@ virDomainGraphicsDefHasOpenGL(const virDomainDef *def)
         switch (graphics->type) {
         case VIR_DOMAIN_GRAPHICS_TYPE_VNC:
         case VIR_DOMAIN_GRAPHICS_TYPE_RDP:
+        case VIR_DOMAIN_GRAPHICS_TYPE_QUBES:
         case VIR_DOMAIN_GRAPHICS_TYPE_DESKTOP:
             continue;
         case VIR_DOMAIN_GRAPHICS_TYPE_SDL:
@@ -31724,6 +31766,7 @@ virDomainGraphicsGetRenderNode(const virDomainGraphicsDef *graphics)
     case VIR_DOMAIN_GRAPHICS_TYPE_SDL:
     case VIR_DOMAIN_GRAPHICS_TYPE_VNC:
     case VIR_DOMAIN_GRAPHICS_TYPE_RDP:
+    case VIR_DOMAIN_GRAPHICS_TYPE_QUBES:
     case VIR_DOMAIN_GRAPHICS_TYPE_DESKTOP:
     case VIR_DOMAIN_GRAPHICS_TYPE_LAST:
         break;

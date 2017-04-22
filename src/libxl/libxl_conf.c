@@ -1534,6 +1534,9 @@ libxlMakeVfb(virPortAllocatorRangePtr graphicsports,
         case VIR_DOMAIN_GRAPHICS_TYPE_EGL_HEADLESS:
         case VIR_DOMAIN_GRAPHICS_TYPE_LAST:
             break;
+        case VIR_DOMAIN_GRAPHICS_TYPE_QUBES:
+            libxl_defbool_set(&x_vfb->vnc.enable, false);
+            libxl_defbool_set(&x_vfb->sdl.enable, false);
     }
 
     return 0;
@@ -1611,6 +1614,12 @@ libxlMakeBuildInfoVfb(virPortAllocatorRangePtr graphicsports,
         virDomainGraphicsDefPtr l_vfb = def->graphics[i];
         unsigned short port;
         virDomainGraphicsListenDefPtr glisten = NULL;
+
+        if (l_vfb->type == VIR_DOMAIN_GRAPHICS_TYPE_QUBES) {
+            libxl_defbool_set(&b_info->u.hvm.qubes_gui.enable, true);
+            b_info->u.hvm.qubes_gui.domname = g_strdup(l_vfb->data.qubes_gui.domain);
+            b_info->u.hvm.qubes_gui.log_level = l_vfb->data.qubes_gui.log_level;
+        }
 
         if (l_vfb->type != VIR_DOMAIN_GRAPHICS_TYPE_SPICE)
             continue;

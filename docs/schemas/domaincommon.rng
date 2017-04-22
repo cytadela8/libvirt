@@ -3343,6 +3343,19 @@
         </group>
         <group>
           <attribute name="type">
+            <value>qubes</value>
+          </attribute>
+          <attribute name="domain">
+            <text/>
+          </attribute>
+          <optional>
+            <attribute name="log_level">
+              <data type="integer"/>
+            </attribute>
+          </optional>
+        </group>
+        <group>
+          <attribute name="type">
             <value>spice</value>
           </attribute>
           <optional>
