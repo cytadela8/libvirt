@@ -4895,6 +4895,9 @@
             Additionally when <code>strictreset</code> is "no", device will
             be assigned to the domain, even when reset fails. The default is
             "yes".
+            When <code>permissive</code> is "yes" the pci config space access
+            will not be filtered. This might be a security issue. The default
+            is "no".
           </dd>
           <dt><code>scsi</code></dt>
           <dd>For SCSI devices, user is responsible to make sure the device

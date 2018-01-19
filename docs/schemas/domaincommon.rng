@@ -2855,6 +2855,11 @@
               <ref name="virYesNo"/>
             </attribute>
           </optional>
+          <optional>
+            <attribute name="permissive">
+              <ref name="virYesNo"/>
+            </attribute>
+          </optional>
           <interleave>
             <element name="source">
               <optional>

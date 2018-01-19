@@ -2294,6 +2294,7 @@ libxlMakePCI(virDomainHostdevDefPtr hostdev, libxl_device_pci *pcidev)
     /* there is no LIBXL_HAVE_xxx for this field... */
     if (hostdev->nostrictreset)
         pcidev->rdm_policy = LIBXL_RDM_RESERVE_POLICY_RELAXED;
+    pcidev->permissive = hostdev->permissive;
 
     return 0;
 }
