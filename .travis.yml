@@ -107,6 +107,7 @@ env:
     - VIR_TEST_DEBUG=1
     - DOCKER_PRE_CMD="
         if [ -n \"\$XEN_BRANCH\" ]; then
+            apt update &&
             apt install -y python-dev python3-dev bin86 bcc iasl libncurses-dev uuid-dev libyajl-dev libaio-dev libglib2.0-dev libpixman-1-dev wget liblzma-dev seabios &&
             git clone https://github.com/xen-project/xen -b \"\$XEN_BRANCH\" /xen &&
             cd /xen &&
