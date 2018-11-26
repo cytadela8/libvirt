@@ -185,4 +185,50 @@ int
 virResctrlInfoGetMonitorPrefix(virResctrlInfoPtr resctrl,
                                const char *prefix,
                                virResctrlInfoMonPtr *monitor);
+
+/* Monitor-related things */
+
+typedef struct _virResctrlMonitor virResctrlMonitor;
+typedef virResctrlMonitor *virResctrlMonitorPtr;
+
+typedef struct _virResctrlMonitorStats virResctrlMonitorStats;
+typedef virResctrlMonitorStats *virResctrlMonitorStatsPtr;
+struct _virResctrlMonitorStats {
+    unsigned int id;
+    unsigned int val;
+};
+
+virResctrlMonitorPtr
+virResctrlMonitorNew(void);
+
+int
+virResctrlMonitorDeterminePath(virResctrlMonitorPtr monitor,
+                               const char *machinename);
+
+int
+virResctrlMonitorAddPID(virResctrlMonitorPtr monitor,
+                        pid_t pid);
+
+int
+virResctrlMonitorCreate(virResctrlMonitorPtr monitor,
+                        const char *machinename);
+
+int
+virResctrlMonitorSetID(virResctrlMonitorPtr monitor,
+                       const char *id);
+
+const char *
+virResctrlMonitorGetID(virResctrlMonitorPtr monitor);
+
+void
+virResctrlMonitorSetAlloc(virResctrlMonitorPtr monitor,
+                          virResctrlAllocPtr alloc);
+
+int
+virResctrlMonitorRemove(virResctrlMonitorPtr monitor);
+
+int
+virResctrlMonitorGetCacheOccupancy(virResctrlMonitorPtr monitor,
+                                   virResctrlMonitorStatsPtr *caches,
+                                   size_t *ncaches);
 #endif /*  __VIR_RESCTRL_H__ */

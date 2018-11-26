@@ -93,6 +93,8 @@ virCPUModeTypeToString;
 
 
 # conf/device_conf.h
+virDeviceInfoPCIAddressExtensionIsPresent;
+virDeviceInfoPCIAddressExtensionIsWanted;
 virDeviceInfoPCIAddressIsPresent;
 virDeviceInfoPCIAddressIsWanted;
 virDomainDeviceAddressIsValid;
@@ -119,6 +121,9 @@ virDomainCCWAddressSetFree;
 virDomainPCIAddressBusIsFullyReserved;
 virDomainPCIAddressBusSetModel;
 virDomainPCIAddressEnsureAddr;
+virDomainPCIAddressExtensionReleaseAddr;
+virDomainPCIAddressExtensionReserveAddr;
+virDomainPCIAddressExtensionReserveNextAddr;
 virDomainPCIAddressReleaseAddr;
 virDomainPCIAddressReserveAddr;
 virDomainPCIAddressReserveNextAddr;
@@ -722,14 +727,11 @@ virNodeDevCapsDefFree;
 virNodeDevCapTypeFromString;
 virNodeDevCapTypeToString;
 virNodeDeviceCapsListExport;
-virNodeDeviceCreateVport;
 virNodeDeviceDefFormat;
 virNodeDeviceDefFree;
 virNodeDeviceDefParseFile;
 virNodeDeviceDefParseNode;
 virNodeDeviceDefParseString;
-virNodeDeviceDeleteVport;
-virNodeDeviceGetParentName;
 virNodeDeviceGetPCIDynamicCaps;
 virNodeDeviceGetSCSIHostCaps;
 virNodeDeviceGetSCSITargetCaps;
@@ -742,6 +744,10 @@ virNodeDeviceEventLifecycleNew;
 virNodeDeviceEventStateRegisterID;
 virNodeDeviceEventUpdateNew;
 
+# conf/node_device_util.h
+virNodeDeviceCreateVport;
+virNodeDeviceDeleteVport;
+virNodeDeviceGetParentName;
 
 # conf/numa_conf.h
 virDomainMemoryAccessTypeFromString;
@@ -2568,6 +2574,8 @@ virPCIHeaderTypeToString;
 virPCIIsVirtualFunction;
 virPCIStubDriverTypeFromString;
 virPCIStubDriverTypeToString;
+virZPCIDeviceAddressIsEmpty;
+virZPCIDeviceAddressIsValid;
 
 
 # util/virperf.h
@@ -2625,6 +2633,7 @@ virProcessKill;
 virProcessKillPainfully;
 virProcessKillPainfullyDelay;
 virProcessNamespaceAvailable;
+virProcessRunInFork;
 virProcessRunInMountNamespace;
 virProcessSchedPolicyTypeFromString;
 virProcessSchedPolicyTypeToString;
@@ -2680,6 +2689,15 @@ virResctrlInfoGetCache;
 virResctrlInfoGetMonitorPrefix;
 virResctrlInfoMonFree;
 virResctrlInfoNew;
+virResctrlMonitorAddPID;
+virResctrlMonitorCreate;
+virResctrlMonitorDeterminePath;
+virResctrlMonitorGetCacheOccupancy;
+virResctrlMonitorGetID;
+virResctrlMonitorNew;
+virResctrlMonitorRemove;
+virResctrlMonitorSetAlloc;
+virResctrlMonitorSetID;
 
 
 # util/virrotatingfile.h

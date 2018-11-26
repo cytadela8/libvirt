@@ -3466,19 +3466,25 @@ int virFilePrintf(FILE *fp, const char *msg, ...)
 
 static int
 virFileIsSharedFixFUSE(const char *path,
-                       long *f_type)
+                       long long *f_type)
 {
-    char *dirpath = NULL;
-    const char **mounts = NULL;
-    size_t nmounts = 0;
-    char *p;
     FILE *f = NULL;
     struct mntent mb;
     char mntbuf[1024];
+    char *mntDir = NULL;
+    char *mntType = NULL;
+    char *canonPath = NULL;
+    size_t maxMatching = 0;
     int ret = -1;
 
-    if (VIR_STRDUP(dirpath, path) < 0)
+    if (!(canonPath = virFileCanonicalizePath(path))) {
+        virReportSystemError(errno,
+                             _("unable to canonicalize %s"),
+                             path);
         return -1;
+    }
+
+    VIR_DEBUG("Path canonicalization: %s->%s", path, canonPath);
 
     if (!(f = setmntent(PROC_MOUNTS, "r"))) {
         virReportSystemError(errno,
@@ -3488,43 +3494,37 @@ virFileIsSharedFixFUSE(const char *path,
     }
 
     while (getmntent_r(f, &mb, mntbuf, sizeof(mntbuf))) {
-        if (STRNEQ("fuse.glusterfs", mb.mnt_type))
+        const char *p;
+        size_t len = strlen(mb.mnt_dir);
+
+        if (!(p = STRSKIP(canonPath, mb.mnt_dir)))
             continue;
 
-        if (VIR_APPEND_ELEMENT_COPY(mounts, nmounts, mb.mnt_dir) < 0)
-            goto cleanup;
+        if (*(p - 1) != '/' && *p != '/' && *p != '\0')
+            continue;
+
+        if (len > maxMatching) {
+            maxMatching = len;
+            VIR_FREE(mntType);
+            VIR_FREE(mntDir);
+            if (VIR_STRDUP(mntDir, mb.mnt_dir) < 0 ||
+                VIR_STRDUP(mntType, mb.mnt_type) < 0)
+                goto cleanup;
+        }
     }
 
-    /* Add NULL sentinel so that this is a virStringList */
-    if (VIR_REALLOC_N(mounts, nmounts + 1) < 0)
-        goto cleanup;
-    mounts[nmounts] = NULL;
-
-    do {
-        if ((p = strrchr(dirpath, '/')) == NULL) {
-            virReportSystemError(EINVAL,
-                                 _("Invalid relative path '%s'"), path);
-            goto cleanup;
-        }
-
-        if (p == dirpath)
-            *(p+1) = '\0';
-        else
-            *p = '\0';
-
-        if (virStringListHasString(mounts, dirpath)) {
-            VIR_DEBUG("Found gluster FUSE mountpoint=%s for path=%s. "
-                      "Fixing shared FS type", dirpath, path);
-            *f_type = GFS2_MAGIC;
-            break;
-        }
-    } while (p != dirpath);
+    if (STREQ_NULLABLE(mntType, "fuse.glusterfs")) {
+        VIR_DEBUG("Found gluster FUSE mountpoint=%s for path=%s. "
+                  "Fixing shared FS type", mntDir, canonPath);
+        *f_type = GFS2_MAGIC;
+    }
 
     ret = 0;
  cleanup:
+    VIR_FREE(canonPath);
+    VIR_FREE(mntType);
+    VIR_FREE(mntDir);
     endmntent(f);
-    VIR_FREE(mounts);
-    VIR_FREE(dirpath);
     return ret;
 }
 
@@ -3534,15 +3534,17 @@ virFileIsSharedFSType(const char *path,
                       int fstypes)
 {
     VIR_AUTOFREE(char *) dirpath = NULL;
-    char *p;
+    char *p = NULL;
     struct statfs sb;
     int statfs_ret;
+    long long f_type = 0;
 
     if (VIR_STRDUP(dirpath, path) < 0)
         return -1;
 
-    do {
+    statfs_ret = statfs(dirpath, &sb);
 
+    while ((statfs_ret < 0) && (p != dirpath)) {
         /* Try less and less of the path until we get to a
          * directory we can stat. Even if we don't have 'x'
          * permission on any directory in the path on the NFS
@@ -3563,8 +3565,7 @@ virFileIsSharedFSType(const char *path,
             *p = '\0';
 
         statfs_ret = statfs(dirpath, &sb);
-
-    } while ((statfs_ret < 0) && (p != dirpath));
+    }
 
     if (statfs_ret < 0) {
         virReportSystemError(errno,
@@ -3573,32 +3574,34 @@ virFileIsSharedFSType(const char *path,
         return -1;
     }
 
-    if (sb.f_type == FUSE_SUPER_MAGIC) {
+    f_type = sb.f_type;
+
+    if (f_type == FUSE_SUPER_MAGIC) {
         VIR_DEBUG("Found FUSE mount for path=%s. Trying to fix it", path);
-        virFileIsSharedFixFUSE(path, (long *) &sb.f_type);
+        virFileIsSharedFixFUSE(path, &f_type);
     }
 
     VIR_DEBUG("Check if path %s with FS magic %lld is shared",
-              path, (long long int)sb.f_type);
+              path, f_type);
 
     if ((fstypes & VIR_FILE_SHFS_NFS) &&
-        (sb.f_type == NFS_SUPER_MAGIC))
+        (f_type == NFS_SUPER_MAGIC))
         return 1;
 
     if ((fstypes & VIR_FILE_SHFS_GFS2) &&
-        (sb.f_type == GFS2_MAGIC))
+        (f_type == GFS2_MAGIC))
         return 1;
     if ((fstypes & VIR_FILE_SHFS_OCFS) &&
-        (sb.f_type == OCFS2_SUPER_MAGIC))
+        (f_type == OCFS2_SUPER_MAGIC))
         return 1;
     if ((fstypes & VIR_FILE_SHFS_AFS) &&
-        (sb.f_type == AFS_FS_MAGIC))
+        (f_type == AFS_FS_MAGIC))
         return 1;
     if ((fstypes & VIR_FILE_SHFS_SMB) &&
-        (sb.f_type == SMB_SUPER_MAGIC))
+        (f_type == SMB_SUPER_MAGIC))
         return 1;
     if ((fstypes & VIR_FILE_SHFS_CIFS) &&
-        (sb.f_type == CIFS_SUPER_MAGIC))
+        (f_type == CIFS_SUPER_MAGIC))
         return 1;
 
     return 0;
@@ -4080,11 +4083,18 @@ virFileInData(int fd,
     ret = 0;
  cleanup:
     /* At any rate, reposition back to where we started. */
-    if (cur != (off_t) -1 &&
-        lseek(fd, cur, SEEK_SET) == (off_t) -1) {
-        virReportSystemError(errno, "%s",
-                             _("unable to restore position in file"));
-        ret = -1;
+    if (cur != (off_t) -1) {
+        int theerrno = errno;
+
+        if (lseek(fd, cur, SEEK_SET) == (off_t) -1) {
+            virReportSystemError(errno, "%s",
+                                 _("unable to restore position in file"));
+            ret = -1;
+            if (theerrno == 0)
+                theerrno = errno;
+        }
+
+        errno = theerrno;
     }
     return ret;
 }

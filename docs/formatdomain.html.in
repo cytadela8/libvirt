@@ -759,6 +759,12 @@
     &lt;cachetune vcpus='0-3'&gt;
       &lt;cache id='0' level='3' type='both' size='3' unit='MiB'/&gt;
       &lt;cache id='1' level='3' type='both' size='3' unit='MiB'/&gt;
+      &lt;monitor level='3' vcpus='1'/&gt;
+      &lt;monitor level='3' vcpus='0-3'/&gt;
+    &lt;/cachetune&gt;
+    &lt;cachetune vcpus='4-5'&gt;
+      &lt;monitor level='3' vcpus='4'/&gt;
+      &lt;monitor level='3' vcpus='5'/&gt;
     &lt;/cachetune&gt;
     &lt;memorytune vcpus='0-3'&gt;
       &lt;node id='0' bandwidth='60'/&gt;
@@ -943,8 +949,8 @@
         <dl>
           <dt><code>cache</code></dt>
           <dd>
-            This element controls the allocation of CPU cache and has the
-            following attributes:
+            This optional element controls the allocation of CPU cache and has
+            the following attributes:
             <dl>
               <dt><code>level</code></dt>
               <dd>
@@ -975,6 +981,26 @@
                 (described in the <code>memory</code> element
                 for <a href="#elementsMemoryAllocation">Memory Allocation</a>)
                 in which <code>size</code> is specified, defaults to bytes.
+              </dd>
+            </dl>
+          </dd>
+          <dt><code>monitor</code><span class="since">Since 4.10.0</span></dt>
+          <dd>
+            The optional element <code>monitor</code> creates the cache
+            monitor(s) for current cache allocation and has the following
+            required attributes:
+            <dl>
+              <dt><code>level</code></dt>
+              <dd>
+                Host cache level the monitor belongs to.
+              </dd>
+              <dt><code>vcpus</code></dt>
+              <dd>
+                vCPU list the monitor applies to. A monitor's vCPU list
+                can only be the member(s) of the vCPU list of the associated
+                allocation. The default monitor has the same vCPU list as the
+                associated allocation. For non-default monitors, overlapping
+                vCPUs are not permitted.
               </dd>
             </dl>
           </dd>
@@ -1100,7 +1126,7 @@
     &lt;/hugepages&gt;
     &lt;nosharepages/&gt;
     &lt;locked/&gt;
-    &lt;source type="file|anonymous"/&gt;
+    &lt;source type="file|anonymous|memfd"/&gt;
     &lt;access mode="shared|private"/&gt;
     &lt;allocation mode="immediate|ondemand"/&gt;
     &lt;discard/&gt;
@@ -1151,9 +1177,10 @@
         suitable for the specific environment at the same time to mitigate
         the risks described above. <span class="since">Since 1.0.6</span></dd>
        <dt><code>source</code></dt>
-       <dd>Using the <code>type</code> attribute, it's possible to provide
-         "file" to utilize file memorybacking or keep the default
-         "anonymous".</dd>
+       <dd>Using the <code>type</code> attribute, it's possible to
+       provide "file" to utilize file memorybacking or keep the
+       default "anonymous". <span class="since">Since 4.10.0</span>,
+       you may choose "memfd" backing. (QEMU/KVM only)</dd>
        <dt><code>access</code></dt>
        <dd>Using the <code>mode</code> attribute, specify if the memory is
          to be "shared" or "private". This can be overridden per numa node by
@@ -1981,6 +2008,8 @@
     &lt;frequencies state='on'/&gt;
     &lt;reenlightenment state='on'/&gt;
     &lt;tlbflush state='on'/&gt;
+    &lt;ipi state='on'/&gt;
+    &lt;evmcs state='on'/&gt;
   &lt;/hyperv&gt;
   &lt;kvm&gt;
     &lt;hidden state='on'/&gt;
@@ -2052,7 +2081,7 @@
         <tr>
           <td>relaxed</td>
           <td>Relax constraints on timers</td>
-          <td> on, off</td>
+          <td>on, off</td>
           <td><span class="since">1.0.0 (QEMU 2.0)</span></td>
         </tr>
         <tr>
@@ -2070,31 +2099,31 @@
         <tr>
           <td>vpindex</td>
           <td>Virtual processor index</td>
-          <td> on, off</td>
+          <td>on, off</td>
           <td><span class="since">1.3.3 (QEMU 2.5)</span></td>
         </tr>
         <tr>
           <td>runtime</td>
           <td>Processor time spent on running guest code and on behalf of guest code</td>
-          <td> on, off</td>
+          <td>on, off</td>
           <td><span class="since">1.3.3 (QEMU 2.5)</span></td>
         </tr>
         <tr>
           <td>synic</td>
           <td>Enable Synthetic Interrupt Controller (SyNIC)</td>
-          <td> on, off</td>
+          <td>on, off</td>
           <td><span class="since">1.3.3 (QEMU 2.6)</span></td>
         </tr>
         <tr>
           <td>stimer</td>
           <td>Enable SyNIC timers</td>
-          <td> on, off</td>
+          <td>on, off</td>
           <td><span class="since">1.3.3 (QEMU 2.6)</span></td>
         </tr>
         <tr>
           <td>reset</td>
           <td>Enable hypervisor reset</td>
-          <td> on, off</td>
+          <td>on, off</td>
           <td><span class="since">1.3.3 (QEMU 2.5)</span></td>
         </tr>
         <tr>
@@ -2106,20 +2135,32 @@
         <tr>
           <td>frequencies</td>
           <td>Expose frequency MSRs</td>
-          <td> on, off</td>
+          <td>on, off</td>
           <td><span class="since">4.7.0 (QEMU 2.12)</span></td>
         </tr>
         <tr>
           <td>reenlightenment</td>
           <td>Enable re-enlightenment notification on migration</td>
-          <td> on, off</td>
+          <td>on, off</td>
           <td><span class="since">4.7.0 (QEMU 3.0)</span></td>
         </tr>
         <tr>
           <td>tlbflush</td>
           <td>Enable PV TLB flush support</td>
-          <td> on, off</td>
+          <td>on, off</td>
           <td><span class="since">4.7.0 (QEMU 3.0)</span></td>
+        </tr>
+        <tr>
+          <td>ipi</td>
+          <td>Enable PV IPI support</td>
+          <td>on, off</td>
+          <td><span class="since">4.10.0 (QEMU 3.1)</span></td>
+        </tr>
+        <tr>
+          <td>evmcs</td>
+          <td>Enable Enlightened VMCS</td>
+          <td>on, off</td>
+          <td><span class="since">4.10.0 (QEMU 3.1)</span></td>
         </tr>
       </table>
       </dd>
@@ -2794,7 +2835,6 @@
       &lt;/auth&gt;
     &lt;/source&gt;
     &lt;target dev='sdb' bus='scsi'/&gt;
-  &lt;/disk&gt;
   &lt;/disk&gt;
   &lt;disk type='network' device='lun'&gt;
     &lt;driver name='qemu' type='raw'/&gt;
@@ -3925,7 +3965,15 @@
         (<span class="since">since 0.9.7, requires QEMU
         0.13</span>). <code>multifunction</code> defaults to 'off',
         but should be set to 'on' for function 0 of a slot that will
-        have multiple functions used.<br/>
+        have multiple functions used.
+        (<span class="since">Since 4.10.0</span>), PCI address extensions
+        depending on the architecture are supported. For example, PCI
+        addresses for S390 guests will have a <code>zpci</code> child
+        element, with two attributes: <code>uid</code> (a hex value
+        between 0x0001 and 0xffff, inclusive), and <code>fid</code> (a
+        hex value between 0x00000000 and 0xffffffff, inclusive) used by
+        PCI devices on S390 for User-defined Identifiers and Function
+        Identifiers.<br/>
         <span class="since">Since 1.3.5</span>, some hypervisor
         drivers may accept an <code>&lt;address type='pci'/&gt;</code>
         element with no other attributes as an explicit request to
@@ -4616,8 +4664,9 @@
           <dd>For mediated devices (<span class="since">Since 3.2.0</span>)
           the <code>model</code> attribute specifies the device API which
           determines how the host's vfio driver will expose the device to the
-          guest. Currently, <code>model='vfio-pci'</code> and
+          guest. Currently, <code>model='vfio-pci'</code>,
           <code>model='vfio-ccw'</code> (<span class="since">Since 4.4.0</span>)
+          and <code>model='vfio-ap'</code> (<span class="since">Since 4.9.0</span>)
           is supported. <a href="drvnodedev.html#MDEV">MDEV</a> section
           provides more information about mediated devices as well as how to
           create mediated devices on the host.
@@ -5167,7 +5216,6 @@
     &lt;virtualport&gt;
       &lt;parameters instanceid='09b11c53-8b5c-4eeb-8f00-d84eaa0aaa4f'/&gt;
     &lt;/virtualport&gt;
-
   &lt;/interface&gt;
 &lt;/devices&gt;
 ...</pre>
@@ -5660,8 +5708,7 @@ qemu-kvm -net nic,model=? /dev/null
       &lt;host csum='off' gso='off' tso4='off' tso6='off' ecn='off' ufo='off' mrg_rxbuf='off'/&gt;
       &lt;guest csum='off' tso4='off' tso6='off' ecn='off' ufo='off'/&gt;
     &lt;/driver&gt;
-    </b>
-  &lt;/interface&gt;
+    </b>&lt;/interface&gt;
 &lt;/devices&gt;
 ...</pre>
 
@@ -6163,7 +6210,7 @@ qemu-kvm -net nic,model=? /dev/null
     <b>&lt;route family='ipv4' address='192.168.122.0' prefix='24' gateway='192.168.122.1'/&gt;</b>
     <b>&lt;route family='ipv4' address='192.168.122.8' gateway='192.168.122.1'/&gt;</b>
   &lt;/hostdev&gt;
-
+  ...
 &lt;/devices&gt;
 ...
 </pre>

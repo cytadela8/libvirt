@@ -93,6 +93,7 @@ struct _virSecuritySELinuxContextList {
     virSecurityManagerPtr manager;
     virSecuritySELinuxContextItemPtr *items;
     size_t nItems;
+    bool lock;
 };
 
 #define SECURITY_SELINUX_VOID_DOI       "0"
@@ -214,6 +215,7 @@ virSecuritySELinuxTransactionRun(pid_t pid ATTRIBUTE_UNUSED,
                                  void *opaque)
 {
     virSecuritySELinuxContextListPtr list = opaque;
+    virSecurityManagerMetadataLockStatePtr state;
     bool privileged = virSecurityManagerGetPrivileged(list->manager);
     const char **paths = NULL;
     size_t npaths = 0;
@@ -221,20 +223,19 @@ virSecuritySELinuxTransactionRun(pid_t pid ATTRIBUTE_UNUSED,
     int rv;
     int ret = -1;
 
-    if (VIR_ALLOC_N(paths, list->nItems) < 0)
-        return -1;
+    if (list->lock) {
+        if (VIR_ALLOC_N(paths, list->nItems) < 0)
+            return -1;
 
-    for (i = 0; i < list->nItems; i++) {
-        const char *p = list->items[i]->path;
+        for (i = 0; i < list->nItems; i++) {
+            const char *p = list->items[i]->path;
 
-        if (virFileIsDir(p))
-            continue;
+            VIR_APPEND_ELEMENT_COPY_INPLACE(paths, npaths, p);
+        }
 
-        VIR_APPEND_ELEMENT_COPY_INPLACE(paths, npaths, p);
+        if (!(state = virSecurityManagerMetadataLock(list->manager, paths, npaths)))
+            goto cleanup;
     }
-
-    if (virSecurityManagerMetadataLock(list->manager, paths, npaths) < 0)
-        goto cleanup;
 
     rv = 0;
     for (i = 0; i < list->nItems; i++) {
@@ -250,8 +251,8 @@ virSecuritySELinuxTransactionRun(pid_t pid ATTRIBUTE_UNUSED,
         }
     }
 
-    if (virSecurityManagerMetadataUnlock(list->manager, paths, npaths) < 0)
-        goto cleanup;
+    if (list->lock)
+        virSecurityManagerMetadataUnlock(list->manager, &state);
 
     if (rv < 0)
         goto cleanup;
@@ -1072,11 +1073,15 @@ virSecuritySELinuxTransactionStart(virSecurityManagerPtr mgr)
  * virSecuritySELinuxTransactionCommit:
  * @mgr: security manager
  * @pid: domain's PID
+ * @lock: lock and unlock paths that are relabeled
  *
  * If @pis is not -1 then enter the @pid namespace (usually @pid refers
  * to a domain) and perform all the sefilecon()-s on the list. If @pid
  * is -1 then the transaction is performed in the namespace of the
  * caller.
+ *
+ * If @lock is true then all the paths that transaction would
+ * touch are locked before and unlocked after it is done so.
  *
  * Note that the transaction is also freed, therefore new one has to be
  * started after successful return from this function. Also it is
@@ -1088,14 +1093,19 @@ virSecuritySELinuxTransactionStart(virSecurityManagerPtr mgr)
  */
 static int
 virSecuritySELinuxTransactionCommit(virSecurityManagerPtr mgr ATTRIBUTE_UNUSED,
-                                    pid_t pid)
+                                    pid_t pid,
+                                    bool lock)
 {
     virSecuritySELinuxContextListPtr list;
-    int ret = 0;
+    int rc;
+    int ret = -1;
 
     list = virThreadLocalGet(&contextList);
-    if (!list)
-        return 0;
+    if (!list) {
+        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+                       _("No transaction is set"));
+        return -1;
+    }
 
     if (virThreadLocalSet(&contextList, NULL) < 0) {
         virReportSystemError(errno, "%s",
@@ -1103,12 +1113,20 @@ virSecuritySELinuxTransactionCommit(virSecurityManagerPtr mgr ATTRIBUTE_UNUSED,
         goto cleanup;
     }
 
-    if ((pid == -1 &&
-         virSecuritySELinuxTransactionRun(pid, list) < 0) ||
-        (pid != -1 &&
-         virProcessRunInMountNamespace(pid,
-                                       virSecuritySELinuxTransactionRun,
-                                       list) < 0))
+    list->lock = lock;
+
+    if (pid == -1) {
+        if (lock)
+            rc = virProcessRunInFork(virSecuritySELinuxTransactionRun, list);
+        else
+            rc = virSecuritySELinuxTransactionRun(pid, list);
+    } else {
+        rc = virProcessRunInMountNamespace(pid,
+                                           virSecuritySELinuxTransactionRun,
+                                           list);
+    }
+
+    if (rc < 0)
         goto cleanup;
 
     ret = 0;

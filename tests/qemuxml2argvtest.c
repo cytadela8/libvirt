@@ -1076,6 +1076,10 @@ mymain(void)
             QEMU_CAPS_CCW, QEMU_CAPS_VIRTIO_S390);
     DO_TEST("disk-virtio-scsi-ccw", QEMU_CAPS_VIRTIO_SCSI,
             QEMU_CAPS_CCW, QEMU_CAPS_VIRTIO_S390);
+    DO_TEST("disk-virtio-s390-zpci",
+            QEMU_CAPS_DEVICE_ZPCI,
+            QEMU_CAPS_CCW,
+            QEMU_CAPS_VIRTIO_S390);
     DO_TEST("disk-order", QEMU_CAPS_VIRTIO_BLK_SCSI);
     DO_TEST("disk-virtio-queues",
             QEMU_CAPS_VIRTIO_BLK_NUM_QUEUES);
@@ -1359,6 +1363,8 @@ mymain(void)
     DO_TEST("misc-uuid", NONE);
     DO_TEST_PARSE_ERROR("vhost_queues-invalid", NONE);
     DO_TEST("net-vhostuser", QEMU_CAPS_CHARDEV_FD_PASS);
+    DO_TEST_CAPS_VER("net-vhostuser", "2.5.0");
+    DO_TEST_CAPS_LATEST("net-vhostuser");
     DO_TEST("net-vhostuser-multiq",
             QEMU_CAPS_VHOSTUSER_MULTIQUEUE);
     DO_TEST_FAILURE("net-vhostuser-multiq", NONE);
@@ -1463,12 +1469,16 @@ mymain(void)
             QEMU_CAPS_DEVICE_ISA_SERIAL);
     DO_TEST("parallel-tcp-chardev", NONE);
     DO_TEST("parallel-parport-chardev", NONE);
+    DO_TEST_CAPS_VER("parallel-unix-chardev", "2.5.0");
+    DO_TEST_CAPS_LATEST("parallel-unix-chardev");
     DO_TEST("console-compat-chardev",
             QEMU_CAPS_DEVICE_ISA_SERIAL);
     DO_TEST("pci-serial-dev-chardev",
             QEMU_CAPS_DEVICE_PCI_SERIAL);
 
     DO_TEST("channel-guestfwd", NONE);
+    DO_TEST_CAPS_VER("channel-unix-guestfwd", "2.5.0");
+    DO_TEST_CAPS_LATEST("channel-unix-guestfwd");
     DO_TEST("channel-virtio", NONE);
     DO_TEST("channel-virtio-state", NONE);
     DO_TEST("channel-virtio-auto", NONE);
@@ -1482,6 +1492,8 @@ mymain(void)
     DO_TEST("console-virtio-ccw",
             QEMU_CAPS_CCW,
             QEMU_CAPS_VIRTIO_S390);
+    DO_TEST_CAPS_VER("console-virtio-unix", "2.5.0");
+    DO_TEST_CAPS_LATEST("console-virtio-unix");
     DO_TEST("console-sclp",
             QEMU_CAPS_VIRTIO_S390,
             QEMU_CAPS_DEVICE_SCLPCONSOLE);
@@ -1504,6 +1516,8 @@ mymain(void)
             QEMU_CAPS_CCID_PASSTHRU);
     DO_TEST("smartcard-controller",
             QEMU_CAPS_CCID_EMULATED);
+    DO_TEST_CAPS_VER("smartcard-passthrough-unix", "2.5.0");
+    DO_TEST_CAPS_LATEST("smartcard-passthrough-unix");
 
     DO_TEST("chardev-reconnect",
             QEMU_CAPS_CHARDEV_RECONNECT,
@@ -1569,6 +1583,8 @@ mymain(void)
             QEMU_CAPS_USB_REDIR,
             QEMU_CAPS_SPICE,
             QEMU_CAPS_USB_REDIR_FILTER);
+    DO_TEST_CAPS_VER("usb-redir-unix", "2.5.0");
+    DO_TEST_CAPS_LATEST("usb-redir-unix");
     DO_TEST("usb1-usb2",
             QEMU_CAPS_PIIX3_USB_UHCI,
             QEMU_CAPS_USB_HUB,
@@ -1667,6 +1683,24 @@ mymain(void)
     DO_TEST_PARSE_ERROR("hostdev-mdev-display-missing-graphics",
             QEMU_CAPS_DEVICE_VFIO_PCI,
             QEMU_CAPS_VFIO_PCI_DISPLAY);
+    DO_TEST_PARSE_ERROR("hostdev-vfio-zpci-wrong-arch",
+                        QEMU_CAPS_DEVICE_VFIO_PCI);
+    DO_TEST("hostdev-vfio-zpci",
+            QEMU_CAPS_DEVICE_VFIO_PCI,
+            QEMU_CAPS_DEVICE_ZPCI);
+    DO_TEST("hostdev-vfio-zpci-multidomain-many",
+            QEMU_CAPS_DEVICE_VFIO_PCI,
+            QEMU_CAPS_DEVICE_PCI_BRIDGE,
+            QEMU_CAPS_DEVICE_ZPCI);
+    DO_TEST("hostdev-vfio-zpci-autogenerate",
+            QEMU_CAPS_DEVICE_VFIO_PCI,
+            QEMU_CAPS_DEVICE_ZPCI);
+    DO_TEST("hostdev-vfio-zpci-boundaries",
+            QEMU_CAPS_DEVICE_VFIO_PCI,
+            QEMU_CAPS_DEVICE_PCI_BRIDGE,
+            QEMU_CAPS_DEVICE_ZPCI);
+    DO_TEST_PARSE_ERROR("hostdev-vfio-zpci",
+                        QEMU_CAPS_DEVICE_VFIO_PCI);
     DO_TEST("pci-rom", NONE);
     DO_TEST("pci-rom-disabled", NONE);
     DO_TEST("pci-rom-disabled-invalid", NONE);
@@ -2085,6 +2119,8 @@ mymain(void)
     DO_TEST("virtio-rng-egd",
             QEMU_CAPS_DEVICE_VIRTIO_RNG,
             QEMU_CAPS_OBJECT_RNG_EGD);
+    DO_TEST_CAPS_VER("virtio-rng-egd-unix", "2.5.0");
+    DO_TEST_CAPS_LATEST("virtio-rng-egd-unix");
     DO_TEST("virtio-rng-multiple",
             QEMU_CAPS_DEVICE_VIRTIO_RNG,
             QEMU_CAPS_OBJECT_RNG_EGD,
@@ -2937,6 +2973,8 @@ mymain(void)
 
     DO_TEST("fd-memory-no-numa-topology", QEMU_CAPS_OBJECT_MEMORY_FILE,
             QEMU_CAPS_KVM);
+
+    DO_TEST_CAPS_LATEST("memfd-memory-numa");
 
     DO_TEST("cpu-check-none", QEMU_CAPS_KVM);
     DO_TEST("cpu-check-partial", QEMU_CAPS_KVM);

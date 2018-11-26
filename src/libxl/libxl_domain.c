@@ -430,6 +430,30 @@ virDomainDefParserConfig libxlDomainDefParserConfig = {
 };
 
 
+static void
+libxlDomainShutdownHandleDestroy(libxlDriverPrivatePtr driver,
+                                 virDomainObjPtr vm)
+{
+    libxlDomainDestroyInternal(driver, vm);
+    libxlDomainCleanup(driver, vm);
+    if (!vm->persistent)
+        virDomainObjListRemove(driver->domains, vm);
+}
+
+
+static void
+libxlDomainShutdownHandleRestart(libxlDriverPrivatePtr driver,
+                                 virDomainObjPtr vm)
+{
+    libxlDomainDestroyInternal(driver, vm);
+    libxlDomainCleanup(driver, vm);
+    if (libxlDomainStartNew(driver, vm, false) < 0) {
+        VIR_ERROR(_("Failed to restart VM '%s': %s"),
+                  vm->def->name, virGetLastErrorMessage());
+    }
+}
+
+
 struct libxlShutdownThreadInfo
 {
     libxlDriverPrivatePtr driver;
@@ -447,8 +471,10 @@ libxlDomainShutdownThread(void *opaque)
     virObjectEventPtr dom_event = NULL;
     libxl_shutdown_reason xl_reason = ev->u.domain_shutdown.shutdown_reason;
     libxlDriverConfigPtr cfg;
+    libxl_domain_config d_config;
 
     cfg = libxlDriverConfigGet(driver);
+    libxl_domain_config_init(&d_config);
 
     vm = virDomainObjListFindByID(driver->domains, ev->domid);
     if (!vm) {
@@ -468,10 +494,12 @@ libxlDomainShutdownThread(void *opaque)
                                            VIR_DOMAIN_EVENT_STOPPED_SHUTDOWN);
         switch ((virDomainLifecycleAction) vm->def->onPoweroff) {
         case VIR_DOMAIN_LIFECYCLE_ACTION_DESTROY:
-            goto destroy;
+            libxlDomainShutdownHandleDestroy(driver, vm);
+            goto endjob;
         case VIR_DOMAIN_LIFECYCLE_ACTION_RESTART:
         case VIR_DOMAIN_LIFECYCLE_ACTION_RESTART_RENAME:
-            goto restart;
+            libxlDomainShutdownHandleRestart(driver, vm);
+            goto endjob;
         case VIR_DOMAIN_LIFECYCLE_ACTION_PRESERVE:
         case VIR_DOMAIN_LIFECYCLE_ACTION_COREDUMP_DESTROY:
         case VIR_DOMAIN_LIFECYCLE_ACTION_COREDUMP_RESTART:
@@ -487,19 +515,23 @@ libxlDomainShutdownThread(void *opaque)
                                            VIR_DOMAIN_EVENT_STOPPED_CRASHED);
         switch ((virDomainLifecycleAction) vm->def->onCrash) {
         case VIR_DOMAIN_LIFECYCLE_ACTION_DESTROY:
-            goto destroy;
+            libxlDomainShutdownHandleDestroy(driver, vm);
+            goto endjob;
         case VIR_DOMAIN_LIFECYCLE_ACTION_RESTART:
         case VIR_DOMAIN_LIFECYCLE_ACTION_RESTART_RENAME:
-            goto restart;
+            libxlDomainShutdownHandleRestart(driver, vm);
+            goto endjob;
         case VIR_DOMAIN_LIFECYCLE_ACTION_PRESERVE:
         case VIR_DOMAIN_LIFECYCLE_ACTION_LAST:
             goto endjob;
         case VIR_DOMAIN_LIFECYCLE_ACTION_COREDUMP_DESTROY:
             libxlDomainAutoCoreDump(driver, vm);
-            goto destroy;
+            libxlDomainShutdownHandleDestroy(driver, vm);
+            goto endjob;
         case VIR_DOMAIN_LIFECYCLE_ACTION_COREDUMP_RESTART:
             libxlDomainAutoCoreDump(driver, vm);
-            goto restart;
+            libxlDomainShutdownHandleRestart(driver, vm);
+            goto endjob;
         }
     } else if (xl_reason == LIBXL_SHUTDOWN_REASON_REBOOT) {
         virDomainObjSetState(vm, VIR_DOMAIN_SHUTOFF,
@@ -510,10 +542,12 @@ libxlDomainShutdownThread(void *opaque)
                                            VIR_DOMAIN_EVENT_STOPPED_SHUTDOWN);
         switch ((virDomainLifecycleAction) vm->def->onReboot) {
         case VIR_DOMAIN_LIFECYCLE_ACTION_DESTROY:
-            goto destroy;
+            libxlDomainShutdownHandleDestroy(driver, vm);
+            goto endjob;
         case VIR_DOMAIN_LIFECYCLE_ACTION_RESTART:
         case VIR_DOMAIN_LIFECYCLE_ACTION_RESTART_RENAME:
-            goto restart;
+            libxlDomainShutdownHandleRestart(driver, vm);
+            goto endjob;
         case VIR_DOMAIN_LIFECYCLE_ACTION_PRESERVE:
         case VIR_DOMAIN_LIFECYCLE_ACTION_COREDUMP_DESTROY:
         case VIR_DOMAIN_LIFECYCLE_ACTION_COREDUMP_RESTART:
@@ -531,30 +565,36 @@ libxlDomainShutdownThread(void *opaque)
          * Similar to the xl implementation, ignore SUSPEND.  Any actions needed
          * after calling libxl_domain_suspend() are handled by it's callers.
          */
-        goto endjob;
+#ifdef LIBXL_HAVE_SOFT_RESET
+    } else if (xl_reason == LIBXL_SHUTDOWN_REASON_SOFT_RESET) {
+        libxlDomainObjPrivatePtr priv = vm->privateData;
+
+        if (libxl_retrieve_domain_configuration(cfg->ctx, vm->def->id,
+                                                &d_config) != 0) {
+            VIR_ERROR(_("Failed to retrieve config for VM '%s'. "
+                        "Unable to perform soft reset. Destroying VM"),
+                      vm->def->name);
+            libxlDomainShutdownHandleDestroy(driver, vm);
+            goto endjob;
+        }
+
+        if (priv->deathW) {
+            libxl_evdisable_domain_death(cfg->ctx, priv->deathW);
+            priv->deathW = NULL;
+        }
+
+        if (libxl_domain_soft_reset(cfg->ctx, &d_config, vm->def->id,
+                                    NULL, NULL) != 0) {
+            VIR_ERROR(_("Failed to soft reset VM '%s'. Destroying VM"),
+                      vm->def->name);
+            libxlDomainShutdownHandleDestroy(driver, vm);
+            goto endjob;
+        }
+        libxl_evenable_domain_death(cfg->ctx, vm->def->id, 0, &priv->deathW);
+        libxl_domain_unpause(cfg->ctx, vm->def->id);
+#endif
     } else {
         VIR_INFO("Unhandled shutdown_reason %d", xl_reason);
-        goto endjob;
-    }
-
- destroy:
-    virObjectEventStateQueue(driver->domainEventState, dom_event);
-    dom_event = NULL;
-    libxlDomainDestroyInternal(driver, vm);
-    libxlDomainCleanup(driver, vm);
-    if (!vm->persistent)
-        virDomainObjListRemove(driver->domains, vm);
-
-    goto endjob;
-
- restart:
-    virObjectEventStateQueue(driver->domainEventState, dom_event);
-    dom_event = NULL;
-    libxlDomainDestroyInternal(driver, vm);
-    libxlDomainCleanup(driver, vm);
-    if (libxlDomainStartNew(driver, vm, false) < 0) {
-        VIR_ERROR(_("Failed to restart VM '%s': %s"),
-                  vm->def->name, virGetLastErrorMessage());
     }
 
  endjob:
@@ -565,6 +605,7 @@ libxlDomainShutdownThread(void *opaque)
     virObjectEventStateQueue(driver->domainEventState, dom_event);
     libxl_event_free(cfg->ctx, ev);
     VIR_FREE(shutdown_info);
+    libxl_domain_config_dispose(&d_config);
     virObjectUnref(cfg);
 }
 

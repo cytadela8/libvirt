@@ -492,6 +492,13 @@ typedef enum { /* virQEMUCapsFlags grouping marker for syntax-check */
     /* 315 */
     QEMU_CAPS_VFIO_PCI_DISPLAY, /* -device vfio-pci.display */
     QEMU_CAPS_BLOCKDEV, /* -blockdev and blockdev-add are supported */
+    QEMU_CAPS_DEVICE_VFIO_AP, /* -device vfio-ap */
+    QEMU_CAPS_DEVICE_ZPCI, /* -device zpci */
+    QEMU_CAPS_OBJECT_MEMORY_MEMFD, /* -object memory-backend-memfd */
+
+    /* 320 */
+    QEMU_CAPS_OBJECT_MEMORY_MEMFD_HUGETLB, /* -object memory-backend-memfd.hugetlb */
+    QEMU_CAPS_IOTHREAD_POLLING, /* -object iothread.poll-max-ns */
 
     QEMU_CAPS_LAST /* this must always be the last item */
 } virQEMUCapsFlags;

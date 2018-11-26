@@ -126,7 +126,8 @@ VIR_ENUM_IMPL(virDomainOS, VIR_DOMAIN_OSTYPE_LAST,
               "xen",
               "linux",
               "exe",
-              "uml")
+              "uml",
+              "xenpvh")
 
 VIR_ENUM_IMPL(virDomainBoot, VIR_DOMAIN_BOOT_LAST,
               "fd",
@@ -172,7 +173,10 @@ VIR_ENUM_IMPL(virDomainHyperv, VIR_DOMAIN_HYPERV_LAST,
               "vendor_id",
               "frequencies",
               "reenlightenment",
-              "tlbflush")
+              "tlbflush",
+              "ipi",
+              "evmcs",
+);
 
 VIR_ENUM_IMPL(virDomainKVM, VIR_DOMAIN_KVM_LAST,
               "hidden")
@@ -779,7 +783,8 @@ VIR_ENUM_IMPL(virDomainShutoffReason, VIR_DOMAIN_SHUTOFF_LAST,
               "migrated",
               "saved",
               "failed",
-              "from snapshot")
+              "from snapshot",
+              "daemon")
 
 VIR_ENUM_IMPL(virDomainCrashedReason, VIR_DOMAIN_CRASHED_LAST,
               "unknown",
@@ -894,7 +899,8 @@ VIR_ENUM_IMPL(virDomainDiskMirrorState, VIR_DOMAIN_DISK_MIRROR_STATE_LAST,
 VIR_ENUM_IMPL(virDomainMemorySource, VIR_DOMAIN_MEMORY_SOURCE_LAST,
               "none",
               "file",
-              "anonymous")
+              "anonymous",
+              "memfd")
 
 VIR_ENUM_IMPL(virDomainMemoryAllocation, VIR_DOMAIN_MEMORY_ALLOCATION_LAST,
               "none",
@@ -2955,13 +2961,31 @@ virDomainLoaderDefFree(virDomainLoaderDefPtr loader)
 
 
 static void
+virDomainResctrlMonDefFree(virDomainResctrlMonDefPtr domresmon)
+{
+    if (!domresmon)
+        return;
+
+    virBitmapFree(domresmon->vcpus);
+    virObjectUnref(domresmon->instance);
+    VIR_FREE(domresmon);
+}
+
+
+static void
 virDomainResctrlDefFree(virDomainResctrlDefPtr resctrl)
 {
+    size_t i = 0;
+
     if (!resctrl)
         return;
 
+    for (i = 0; i < resctrl->nmonitors; i++)
+        virDomainResctrlMonDefFree(resctrl->monitors[i]);
+
     virObjectUnref(resctrl->alloc);
     virBitmapFree(resctrl->vcpus);
+    VIR_FREE(resctrl->monitors);
     VIR_FREE(resctrl);
 }
 
@@ -6395,11 +6419,15 @@ virDomainVirtioOptionsFormat(virBufferPtr buf,
 }
 
 
-static void ATTRIBUTE_NONNULL(2)
+static int ATTRIBUTE_NONNULL(2)
 virDomainDeviceInfoFormat(virBufferPtr buf,
                           virDomainDeviceInfoPtr info,
                           unsigned int flags)
 {
+    virBuffer attrBuf = VIR_BUFFER_INITIALIZER;
+    virBuffer childBuf = VIR_BUFFER_INITIALIZER;
+    int ret = -1;
+
     if ((flags & VIR_DOMAIN_DEF_FORMAT_ALLOW_BOOT) && info->bootIndex) {
         virBufferAsprintf(buf, "<boot order='%u'", info->bootIndex);
 
@@ -6441,16 +6469,19 @@ virDomainDeviceInfoFormat(virBufferPtr buf,
     }
 
     if (info->type == VIR_DOMAIN_DEVICE_ADDRESS_TYPE_NONE ||
-        info->type == VIR_DOMAIN_DEVICE_ADDRESS_TYPE_VIRTIO_S390)
-        return;
+        info->type == VIR_DOMAIN_DEVICE_ADDRESS_TYPE_VIRTIO_S390) {
+        /* We're done here */
+        ret = 0;
+        goto cleanup;
+    }
 
-    virBufferAsprintf(buf, "<address type='%s'",
+    virBufferAsprintf(&attrBuf, " type='%s'",
                       virDomainDeviceAddressTypeToString(info->type));
 
     switch ((virDomainDeviceAddressType) info->type) {
     case VIR_DOMAIN_DEVICE_ADDRESS_TYPE_PCI:
         if (!virPCIDeviceAddressIsEmpty(&info->addr.pci)) {
-            virBufferAsprintf(buf, " domain='0x%.4x' bus='0x%.2x' "
+            virBufferAsprintf(&attrBuf, " domain='0x%.4x' bus='0x%.2x' "
                               "slot='0x%.2x' function='0x%.1x'",
                               info->addr.pci.domain,
                               info->addr.pci.bus,
@@ -6458,13 +6489,21 @@ virDomainDeviceInfoFormat(virBufferPtr buf,
                               info->addr.pci.function);
         }
         if (info->addr.pci.multi) {
-           virBufferAsprintf(buf, " multifunction='%s'",
-                             virTristateSwitchTypeToString(info->addr.pci.multi));
+            virBufferAsprintf(&attrBuf, " multifunction='%s'",
+                              virTristateSwitchTypeToString(info->addr.pci.multi));
+        }
+
+        if (!virZPCIDeviceAddressIsEmpty(&info->addr.pci.zpci)) {
+            virBufferSetChildIndent(&childBuf, buf);
+            virBufferAsprintf(&childBuf,
+                              "<zpci uid='0x%.4x' fid='0x%.8x'/>\n",
+                              info->addr.pci.zpci.uid,
+                              info->addr.pci.zpci.fid);
         }
         break;
 
     case VIR_DOMAIN_DEVICE_ADDRESS_TYPE_DRIVE:
-        virBufferAsprintf(buf, " controller='%d' bus='%d' target='%d' unit='%d'",
+        virBufferAsprintf(&attrBuf, " controller='%d' bus='%d' target='%d' unit='%d'",
                           info->addr.drive.controller,
                           info->addr.drive.bus,
                           info->addr.drive.target,
@@ -6472,34 +6511,34 @@ virDomainDeviceInfoFormat(virBufferPtr buf,
         break;
 
     case VIR_DOMAIN_DEVICE_ADDRESS_TYPE_VIRTIO_SERIAL:
-        virBufferAsprintf(buf, " controller='%d' bus='%d' port='%d'",
+        virBufferAsprintf(&attrBuf, " controller='%d' bus='%d' port='%d'",
                           info->addr.vioserial.controller,
                           info->addr.vioserial.bus,
                           info->addr.vioserial.port);
         break;
 
     case VIR_DOMAIN_DEVICE_ADDRESS_TYPE_CCID:
-        virBufferAsprintf(buf, " controller='%d' slot='%d'",
+        virBufferAsprintf(&attrBuf, " controller='%d' slot='%d'",
                           info->addr.ccid.controller,
                           info->addr.ccid.slot);
         break;
 
     case VIR_DOMAIN_DEVICE_ADDRESS_TYPE_USB:
-        virBufferAsprintf(buf, " bus='%d'", info->addr.usb.bus);
+        virBufferAsprintf(&attrBuf, " bus='%d'", info->addr.usb.bus);
         if (virDomainUSBAddressPortIsValid(info->addr.usb.port)) {
-            virBufferAddLit(buf, " port='");
-            virDomainUSBAddressPortFormatBuf(buf, info->addr.usb.port);
-            virBufferAddLit(buf, "'");
+            virBufferAddLit(&attrBuf, " port='");
+            virDomainUSBAddressPortFormatBuf(&attrBuf, info->addr.usb.port);
+            virBufferAddLit(&attrBuf, "'");
         }
         break;
 
     case VIR_DOMAIN_DEVICE_ADDRESS_TYPE_SPAPRVIO:
         if (info->addr.spaprvio.has_reg)
-            virBufferAsprintf(buf, " reg='0x%llx'", info->addr.spaprvio.reg);
+            virBufferAsprintf(&attrBuf, " reg='0x%llx'", info->addr.spaprvio.reg);
         break;
 
     case VIR_DOMAIN_DEVICE_ADDRESS_TYPE_CCW:
-        virBufferAsprintf(buf, " cssid='0x%x' ssid='0x%x' devno='0x%04x'",
+        virBufferAsprintf(&attrBuf, " cssid='0x%x' ssid='0x%x' devno='0x%04x'",
                           info->addr.ccw.cssid,
                           info->addr.ccw.ssid,
                           info->addr.ccw.devno);
@@ -6510,15 +6549,15 @@ virDomainDeviceInfoFormat(virBufferPtr buf,
 
     case VIR_DOMAIN_DEVICE_ADDRESS_TYPE_ISA:
         if (info->addr.isa.iobase > 0)
-            virBufferAsprintf(buf, " iobase='0x%x'", info->addr.isa.iobase);
+            virBufferAsprintf(&attrBuf, " iobase='0x%x'", info->addr.isa.iobase);
         if (info->addr.isa.irq > 0)
-            virBufferAsprintf(buf, " irq='0x%x'", info->addr.isa.irq);
+            virBufferAsprintf(&attrBuf, " irq='0x%x'", info->addr.isa.irq);
         break;
 
     case VIR_DOMAIN_DEVICE_ADDRESS_TYPE_DIMM:
-        virBufferAsprintf(buf, " slot='%u'", info->addr.dimm.slot);
+        virBufferAsprintf(&attrBuf, " slot='%u'", info->addr.dimm.slot);
         if (info->addr.dimm.base)
-            virBufferAsprintf(buf, " base='0x%llx'", info->addr.dimm.base);
+            virBufferAsprintf(&attrBuf, " base='0x%llx'", info->addr.dimm.base);
 
         break;
 
@@ -6528,7 +6567,16 @@ virDomainDeviceInfoFormat(virBufferPtr buf,
         break;
     }
 
-    virBufferAddLit(buf, "/>\n");
+    if (virXMLFormatElement(buf, "address", &attrBuf, &childBuf) < 0)
+        goto cleanup;
+
+    ret = 0;
+
+ cleanup:
+    virBufferFreeAndReset(&attrBuf);
+    virBufferFreeAndReset(&childBuf);
+
+    return ret;
 }
 
 static int
@@ -12885,7 +12933,8 @@ virDomainInputDefParseXML(virDomainXMLOptionPtr xmlopt,
                                bus);
                 goto error;
             }
-        } else if (dom->os.type == VIR_DOMAIN_OSTYPE_XEN) {
+        } else if (dom->os.type == VIR_DOMAIN_OSTYPE_XEN ||
+                   dom->os.type == VIR_DOMAIN_OSTYPE_XENPVH) {
             if (def->bus != VIR_DOMAIN_INPUT_BUS_XEN) {
                 virReportError(VIR_ERR_INTERNAL_ERROR,
                                _("unsupported input bus %s"),
@@ -12934,7 +12983,8 @@ virDomainInputDefParseXML(virDomainXMLOptionPtr xmlopt,
             } else {
                 def->bus = VIR_DOMAIN_INPUT_BUS_USB;
             }
-        } else if (dom->os.type == VIR_DOMAIN_OSTYPE_XEN) {
+        } else if (dom->os.type == VIR_DOMAIN_OSTYPE_XEN ||
+                   dom->os.type == VIR_DOMAIN_OSTYPE_XENPVH) {
             def->bus = VIR_DOMAIN_INPUT_BUS_XEN;
         } else {
             if ((dom->virtType == VIR_DOMAIN_VIRT_VZ ||
@@ -18723,6 +18773,7 @@ virDomainDefParseBootOptions(virDomainDefPtr def,
     }
 
     if (def->os.type == VIR_DOMAIN_OSTYPE_XEN ||
+        def->os.type == VIR_DOMAIN_OSTYPE_XENPVH ||
         def->os.type == VIR_DOMAIN_OSTYPE_HVM ||
         def->os.type == VIR_DOMAIN_OSTYPE_UML) {
         xmlNodePtr loader_node;
@@ -18833,7 +18884,7 @@ virDomainResctrlVcpuMatch(virDomainDefPtr def,
          * Just updating memory allocation information of that group
          */
         if (virBitmapEqual(def->resctrls[i]->vcpus, vcpus)) {
-            *alloc = def->resctrls[i]->alloc;
+            *alloc = virObjectRef(def->resctrls[i]->alloc);
             break;
         }
         if (virBitmapOverlaps(def->resctrls[i]->vcpus, vcpus)) {
@@ -18920,26 +18971,193 @@ virDomainCachetuneDefParseCache(xmlXPathContextPtr ctxt,
 }
 
 
+/* Checking if the monitor's vcpus is conflicted with existing allocation
+ * and monitors.
+ *
+ * Returns 1 if @vcpus equals to @resctrl->vcpus, then the monitor will
+ * share the underlying resctrl group with @resctrl->alloc. Returns - 1
+ * if any conflict found. Returns 0 if no conflict and @vcpus is not equal
+ * to @resctrl->vcpus.
+ */
 static int
-virDomainResctrlAppend(virDomainDefPtr def,
-                       xmlNodePtr node,
-                       virResctrlAllocPtr alloc,
-                       virBitmapPtr vcpus,
-                       unsigned int flags)
+virDomainResctrlMonValidateVcpus(virDomainResctrlDefPtr resctrl,
+                                virBitmapPtr vcpus)
+{
+    size_t i = 0;
+    int vcpu = -1;
+    size_t mons_same_alloc_vcpus = 0;
+
+    if (virBitmapIsAllClear(vcpus)) {
+        virReportError(VIR_ERR_INVALID_ARG, "%s",
+                       _("vcpus is empty"));
+        return -1;
+    }
+
+    while ((vcpu = virBitmapNextSetBit(vcpus, vcpu)) >= 0) {
+        if (!virBitmapIsBitSet(resctrl->vcpus, vcpu)) {
+            virReportError(VIR_ERR_INVALID_ARG, "%s",
+                           _("Monitor vcpus conflicts with allocation"));
+            return -1;
+        }
+    }
+
+    if (virBitmapEqual(vcpus, resctrl->vcpus))
+        return 1;
+
+    for (i = 0; i < resctrl->nmonitors; i++) {
+        if (virBitmapEqual(resctrl->vcpus, resctrl->monitors[i]->vcpus)) {
+            mons_same_alloc_vcpus++;
+            continue;
+        }
+
+        if (virBitmapOverlaps(vcpus, resctrl->monitors[i]->vcpus)) {
+            virReportError(VIR_ERR_INVALID_ARG, "%s",
+                           _("Monitor vcpus conflicts with monitors"));
+
+            return -1;
+        }
+    }
+
+    if (mons_same_alloc_vcpus > 1) {
+        virReportError(VIR_ERR_INVALID_ARG, "%s",
+                       _("Too many monitors have the same vcpu as allocation"));
+        return -1;
+    }
+
+    return 0;
+}
+
+
+#define VIR_DOMAIN_RESCTRL_MONITOR_CACHELEVEL 3
+
+static int
+virDomainResctrlMonDefParse(virDomainDefPtr def,
+                            xmlXPathContextPtr ctxt,
+                            xmlNodePtr node,
+                            virResctrlMonitorType tag,
+                            virDomainResctrlDefPtr resctrl)
+{
+    virDomainResctrlMonDefPtr domresmon = NULL;
+    xmlNodePtr oldnode = ctxt->node;
+    xmlNodePtr *nodes = NULL;
+    unsigned int level = 0;
+    char *tmp = NULL;
+    char *id = NULL;
+    size_t i = 0;
+    int n = 0;
+    int rv = -1;
+    int ret = -1;
+
+    ctxt->node = node;
+
+    if ((n = virXPathNodeSet("./monitor", ctxt, &nodes)) < 0) {
+        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+                       _("Cannot extract monitor nodes"));
+        goto cleanup;
+    }
+
+    for (i = 0; i < n; i++) {
+        if (VIR_ALLOC(domresmon) < 0)
+            goto cleanup;
+
+        domresmon->tag = tag;
+
+        domresmon->instance = virResctrlMonitorNew();
+        if (!domresmon->instance) {
+            virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+                           _("Could not create monitor"));
+            goto cleanup;
+        }
+
+        if (tag == VIR_RESCTRL_MONITOR_TYPE_CACHE) {
+            tmp = virXMLPropString(nodes[i], "level");
+            if (!tmp) {
+                virReportError(VIR_ERR_XML_ERROR, "%s",
+                               _("Missing monitor attribute 'level'"));
+                goto cleanup;
+            }
+
+            if (virStrToLong_uip(tmp, NULL, 10, &level) < 0) {
+                virReportError(VIR_ERR_XML_ERROR,
+                               _("Invalid monitor attribute 'level' value '%s'"),
+                               tmp);
+                goto cleanup;
+            }
+
+            if (level != VIR_DOMAIN_RESCTRL_MONITOR_CACHELEVEL) {
+                virReportError(VIR_ERR_XML_ERROR,
+                               _("Invalid monitor cache level '%d'"),
+                               level);
+                goto cleanup;
+            }
+
+            VIR_FREE(tmp);
+        }
+
+        if (virDomainResctrlParseVcpus(def, nodes[i], &domresmon->vcpus) < 0)
+            goto cleanup;
+
+        rv = virDomainResctrlMonValidateVcpus(resctrl, domresmon->vcpus);
+        if (rv < 0)
+            goto cleanup;
+
+        /* If monitor's vcpu list is identical to the vcpu list of the
+         * associated allocation, set monitor's id to the same value
+         * as the allocation. */
+        if (rv == 1) {
+            const char *alloc_id = virResctrlAllocGetID(resctrl->alloc);
+
+            if (VIR_STRDUP(id, alloc_id) < 0)
+                goto cleanup;
+        } else {
+            if (!(tmp = virBitmapFormat(domresmon->vcpus)))
+                goto cleanup;
+
+            if (virAsprintf(&id, "vcpus_%s", tmp) < 0)
+                goto cleanup;
+        }
+
+        virResctrlMonitorSetAlloc(domresmon->instance, resctrl->alloc);
+
+        if (virResctrlMonitorSetID(domresmon->instance, id) < 0)
+            goto cleanup;
+
+        if (VIR_APPEND_ELEMENT(resctrl->monitors,
+                               resctrl->nmonitors,
+                               domresmon) < 0)
+            goto cleanup;
+
+        VIR_FREE(id);
+        VIR_FREE(tmp);
+    }
+
+    ret = 0;
+ cleanup:
+    ctxt->node = oldnode;
+    VIR_FREE(id);
+    VIR_FREE(tmp);
+    VIR_FREE(nodes);
+    virDomainResctrlMonDefFree(domresmon);
+    return ret;
+}
+
+
+static virDomainResctrlDefPtr
+virDomainResctrlNew(xmlNodePtr node,
+                    virResctrlAllocPtr alloc,
+                    virBitmapPtr vcpus,
+                    unsigned int flags)
 {
     char *vcpus_str = NULL;
     char *alloc_id = NULL;
-    virDomainResctrlDefPtr tmp_resctrl = NULL;
-    int ret = -1;
-
-    if (VIR_ALLOC(tmp_resctrl) < 0)
-        goto cleanup;
+    virDomainResctrlDefPtr resctrl = NULL;
+    virDomainResctrlDefPtr ret = NULL;
 
     /* We need to format it back because we need to be consistent in the naming
      * even when users specify some "sub-optimal" string there. */
     vcpus_str = virBitmapFormat(vcpus);
     if (!vcpus_str)
-        goto cleanup;
+        return NULL;
 
     if (!(flags & VIR_DOMAIN_DEF_PARSE_INACTIVE))
         alloc_id = virXMLPropString(node, "id");
@@ -18957,15 +19175,20 @@ virDomainResctrlAppend(virDomainDefPtr def,
     if (virResctrlAllocSetID(alloc, alloc_id) < 0)
         goto cleanup;
 
-    tmp_resctrl->vcpus = vcpus;
-    tmp_resctrl->alloc = alloc;
-
-    if (VIR_APPEND_ELEMENT(def->resctrls, def->nresctrls, tmp_resctrl) < 0)
+    if (VIR_ALLOC(resctrl) < 0)
         goto cleanup;
 
-    ret = 0;
+    if (!(resctrl->vcpus = virBitmapNewCopy(vcpus))) {
+        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+                       _("failed to copy 'vcpus'"));
+        goto cleanup;
+    }
+
+    resctrl->alloc = virObjectRef(alloc);
+
+    VIR_STEAL_PTR(ret, resctrl);
  cleanup:
-    virDomainResctrlDefFree(tmp_resctrl);
+    virDomainResctrlDefFree(resctrl);
     VIR_FREE(alloc_id);
     VIR_FREE(vcpus_str);
     return ret;
@@ -18982,6 +19205,7 @@ virDomainCachetuneDefParse(virDomainDefPtr def,
     xmlNodePtr *nodes = NULL;
     virBitmapPtr vcpus = NULL;
     virResctrlAllocPtr alloc = NULL;
+    virDomainResctrlDefPtr resctrl = NULL;
     ssize_t i = 0;
     int n;
     int ret = -1;
@@ -19020,19 +19244,29 @@ virDomainCachetuneDefParse(virDomainDefPtr def,
             goto cleanup;
     }
 
-    if (virResctrlAllocIsEmpty(alloc)) {
+    resctrl = virDomainResctrlNew(node, alloc, vcpus, flags);
+    if (!resctrl)
+        goto cleanup;
+
+    if (virDomainResctrlMonDefParse(def, ctxt, node,
+                                    VIR_RESCTRL_MONITOR_TYPE_CACHE,
+                                    resctrl) < 0)
+        goto cleanup;
+
+    /* If no <cache> element or <monitor> element in <cachetune>, do not
+     * append any resctrl element */
+    if (!resctrl->nmonitors && virResctrlAllocIsEmpty(alloc)) {
         ret = 0;
         goto cleanup;
     }
 
-    if (virDomainResctrlAppend(def, node, alloc, vcpus, flags) < 0)
+    if (VIR_APPEND_ELEMENT(def->resctrls, def->nresctrls, resctrl) < 0)
         goto cleanup;
-    vcpus = NULL;
-    alloc = NULL;
 
     ret = 0;
  cleanup:
     ctxt->node = oldnode;
+    virDomainResctrlDefFree(resctrl);
     virObjectUnref(alloc);
     virBitmapFree(vcpus);
     VIR_FREE(nodes);
@@ -19190,6 +19424,8 @@ virDomainMemorytuneDefParse(virDomainDefPtr def,
     xmlNodePtr *nodes = NULL;
     virBitmapPtr vcpus = NULL;
     virResctrlAllocPtr alloc = NULL;
+    virDomainResctrlDefPtr resctrl = NULL;
+
     ssize_t i = 0;
     int n;
     int ret = -1;
@@ -19219,8 +19455,6 @@ virDomainMemorytuneDefParse(virDomainDefPtr def,
         if (!alloc)
             goto cleanup;
         new_alloc = true;
-    } else {
-        alloc = virObjectRef(alloc);
     }
 
     for (i = 0; i < n; i++) {
@@ -19236,15 +19470,18 @@ virDomainMemorytuneDefParse(virDomainDefPtr def,
      * just update the existing alloc information, which is done in above
      * virDomainMemorytuneDefParseMemory */
     if (new_alloc) {
-        if (virDomainResctrlAppend(def, node, alloc, vcpus, flags) < 0)
+        resctrl = virDomainResctrlNew(node, alloc, vcpus, flags);
+        if (!resctrl)
             goto cleanup;
-        vcpus = NULL;
-        alloc = NULL;
+
+        if (VIR_APPEND_ELEMENT(def->resctrls, def->nresctrls, resctrl) < 0)
+            goto cleanup;
     }
 
     ret = 0;
  cleanup:
     ctxt->node = oldnode;
+    virDomainResctrlDefFree(resctrl);
     virObjectUnref(alloc);
     virBitmapFree(vcpus);
     VIR_FREE(nodes);
@@ -19992,6 +20229,8 @@ virDomainDefParseXML(xmlDocPtr xml,
             case VIR_DOMAIN_HYPERV_FREQUENCIES:
             case VIR_DOMAIN_HYPERV_REENLIGHTENMENT:
             case VIR_DOMAIN_HYPERV_TLBFLUSH:
+            case VIR_DOMAIN_HYPERV_IPI:
+            case VIR_DOMAIN_HYPERV_EVMCS:
                 break;
 
             case VIR_DOMAIN_HYPERV_SPINLOCKS:
@@ -22186,6 +22425,8 @@ virDomainDefFeaturesCheckABIStability(virDomainDefPtr src,
             case VIR_DOMAIN_HYPERV_FREQUENCIES:
             case VIR_DOMAIN_HYPERV_REENLIGHTENMENT:
             case VIR_DOMAIN_HYPERV_TLBFLUSH:
+            case VIR_DOMAIN_HYPERV_IPI:
+            case VIR_DOMAIN_HYPERV_EVMCS:
                 if (src->hyperv_features[i] != dst->hyperv_features[i]) {
                     virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
                                    _("State of HyperV enlightenment "
@@ -24072,8 +24313,10 @@ virDomainDiskDefFormat(virBufferPtr buf,
     if (def->src->encryption && !def->src->encryptionInherited &&
         virStorageEncryptionFormat(buf, def->src->encryption) < 0)
         return -1;
-    virDomainDeviceInfoFormat(buf, &def->info,
-                              flags | VIR_DOMAIN_DEF_FORMAT_ALLOW_BOOT);
+    if (virDomainDeviceInfoFormat(buf, &def->info,
+                                  flags | VIR_DOMAIN_DEF_FORMAT_ALLOW_BOOT) < 0) {
+        return -1;
+    }
 
     if (virDomainDiskDefFormatPrivateData(buf, def, flags, xmlopt) < 0)
         return -1;
@@ -24126,13 +24369,14 @@ virDomainControllerDefFormat(virBufferPtr buf,
     const char *model = NULL;
     const char *modelName = NULL;
     virBuffer childBuf = VIR_BUFFER_INITIALIZER;
+    int ret = -1;
 
     virBufferSetChildIndent(&childBuf, buf);
 
     if (!type) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("unexpected controller type %d"), def->type);
-        return -1;
+        goto cleanup;
     }
 
     if (def->model != -1) {
@@ -24141,7 +24385,7 @@ virDomainControllerDefFormat(virBufferPtr buf,
         if (!model) {
             virReportError(VIR_ERR_INTERNAL_ERROR,
                            _("unexpected model type %d"), def->model);
-            return -1;
+            goto cleanup;
         }
     }
 
@@ -24205,7 +24449,7 @@ virDomainControllerDefFormat(virBufferPtr buf,
                 virReportError(VIR_ERR_INTERNAL_ERROR,
                                _("unexpected model name value %d"),
                                def->opts.pciopts.modelName);
-                return -1;
+                goto cleanup;
             }
             virBufferAsprintf(&childBuf, "<model name='%s'/>\n", modelName);
         }
@@ -24247,7 +24491,8 @@ virDomainControllerDefFormat(virBufferPtr buf,
 
     virDomainControllerDriverFormat(&childBuf, def);
 
-    virDomainDeviceInfoFormat(&childBuf, &def->info, flags);
+    if (virDomainDeviceInfoFormat(&childBuf, &def->info, flags) < 0)
+        goto cleanup;
 
     if (def->type == VIR_DOMAIN_CONTROLLER_TYPE_PCI &&
         def->opts.pciopts.pcihole64) {
@@ -24256,7 +24501,7 @@ virDomainControllerDefFormat(virBufferPtr buf,
     }
 
     if (virBufferCheckError(&childBuf) < 0)
-        return -1;
+        goto cleanup;
 
     if (virBufferUse(&childBuf)) {
         virBufferAddLit(buf, ">\n");
@@ -24266,7 +24511,12 @@ virDomainControllerDefFormat(virBufferPtr buf,
         virBufferAddLit(buf, "/>\n");
     }
 
-    return 0;
+    ret = 0;
+
+ cleanup:
+    virBufferFreeAndReset(&childBuf);
+
+    return ret;
 }
 
 
@@ -24296,17 +24546,18 @@ virDomainFSDefFormat(virBufferPtr buf,
     const char *wrpolicy = virDomainFSWrpolicyTypeToString(def->wrpolicy);
     const char *src = def->src->path;
     virBuffer driverBuf = VIR_BUFFER_INITIALIZER;
+    int ret = -1;
 
     if (!type) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("unexpected filesystem type %d"), def->type);
-        return -1;
+        goto cleanup;
     }
 
    if (!accessmode) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("unexpected accessmode %d"), def->accessmode);
-        return -1;
+        goto cleanup;
     }
 
 
@@ -24330,7 +24581,7 @@ virDomainFSDefFormat(virBufferPtr buf,
     virDomainVirtioOptionsFormat(&driverBuf, def->virtio);
 
     if (virBufferCheckError(&driverBuf) < 0)
-        return -1;
+        goto cleanup;
 
     if (virBufferUse(&driverBuf)) {
         virBufferAddLit(buf, "<driver");
@@ -24379,7 +24630,8 @@ virDomainFSDefFormat(virBufferPtr buf,
     if (def->readonly)
         virBufferAddLit(buf, "<readonly/>\n");
 
-    virDomainDeviceInfoFormat(buf, &def->info, flags);
+    if (virDomainDeviceInfoFormat(buf, &def->info, flags) < 0)
+        goto cleanup;
 
     if (def->space_hard_limit)
         virBufferAsprintf(buf, "<space_hard_limit unit='bytes'>"
@@ -24390,7 +24642,13 @@ virDomainFSDefFormat(virBufferPtr buf,
     }
     virBufferAdjustIndent(buf, -2);
     virBufferAddLit(buf, "</filesystem>\n");
-    return 0;
+
+    ret = 0;
+
+ cleanup:
+    virBufferFreeAndReset(&driverBuf);
+
+    return ret;
 }
 
 
@@ -25172,9 +25430,11 @@ virDomainNetDefFormat(virBufferPtr buf,
 
     virDomainNetDefCoalesceFormatXML(buf, def->coalesce);
 
-    virDomainDeviceInfoFormat(buf, &def->info,
-                              flags | VIR_DOMAIN_DEF_FORMAT_ALLOW_BOOT
-                              | VIR_DOMAIN_DEF_FORMAT_ALLOW_ROM);
+    if (virDomainDeviceInfoFormat(buf, &def->info,
+                                  flags | VIR_DOMAIN_DEF_FORMAT_ALLOW_BOOT
+                                  | VIR_DOMAIN_DEF_FORMAT_ALLOW_ROM) < 0) {
+        return -1;
+    }
 
     virBufferAdjustIndent(buf, -2);
     virBufferAddLit(buf, "</interface>\n");
@@ -25483,7 +25743,8 @@ virDomainChrDefFormat(virBufferPtr buf,
     if (virDomainChrTargetDefFormat(buf, def, flags) < 0)
         return -1;
 
-    virDomainDeviceInfoFormat(buf, &def->info, flags);
+    if (virDomainDeviceInfoFormat(buf, &def->info, flags) < 0)
+        return -1;
 
     virBufferAdjustIndent(buf, -2);
     virBufferAsprintf(buf, "</%s>\n", elementName);
@@ -25532,7 +25793,8 @@ virDomainSmartcardDefFormat(virBufferPtr buf,
                        _("unexpected smartcard type %d"), def->type);
         goto cleanup;
     }
-    virDomainDeviceInfoFormat(&childBuf, &def->info, flags);
+    if (virDomainDeviceInfoFormat(&childBuf, &def->info, flags) < 0)
+        goto cleanup;
 
     if (virBufferCheckError(&childBuf) < 0)
         goto cleanup;
@@ -25603,7 +25865,8 @@ virDomainTPMDefFormat(virBufferPtr buf,
         break;
     }
 
-    virDomainDeviceInfoFormat(buf, &def->info, flags);
+    if (virDomainDeviceInfoFormat(buf, &def->info, flags) < 0)
+        return -1;
 
     virBufferAdjustIndent(buf, -2);
     virBufferAddLit(buf, "</tpm>\n");
@@ -25620,22 +25883,24 @@ virDomainSoundDefFormat(virBufferPtr buf,
     const char *model = virDomainSoundModelTypeToString(def->model);
     virBuffer childBuf = VIR_BUFFER_INITIALIZER;
     size_t i;
+    int ret = -1;
 
     virBufferSetChildIndent(&childBuf, buf);
 
     if (!model) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("unexpected sound model %d"), def->model);
-        return -1;
+        goto cleanup;
     }
 
     for (i = 0; i < def->ncodecs; i++)
         virDomainSoundCodecDefFormat(&childBuf, def->codecs[i]);
 
-    virDomainDeviceInfoFormat(&childBuf, &def->info, flags);
+    if (virDomainDeviceInfoFormat(&childBuf, &def->info, flags) < 0)
+        goto cleanup;
 
     if (virBufferCheckError(&childBuf) < 0)
-        return -1;
+        goto cleanup;
 
     virBufferAsprintf(buf, "<sound model='%s'",  model);
     if (virBufferUse(&childBuf)) {
@@ -25646,7 +25911,12 @@ virDomainSoundDefFormat(virBufferPtr buf,
         virBufferAddLit(buf, "/>\n");
     }
 
-    return 0;
+    ret = 0;
+
+ cleanup:
+    virBufferFreeAndReset(&childBuf);
+
+    return ret;
 }
 
 
@@ -25657,11 +25927,12 @@ virDomainMemballoonDefFormat(virBufferPtr buf,
 {
     const char *model = virDomainMemballoonModelTypeToString(def->model);
     virBuffer childrenBuf = VIR_BUFFER_INITIALIZER;
+    int ret = -1;
 
     if (!model) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("unexpected memballoon model %d"), def->model);
-        return -1;
+        goto cleanup;
     }
 
     virBufferAsprintf(buf, "<memballoon model='%s'", model);
@@ -25675,17 +25946,17 @@ virDomainMemballoonDefFormat(virBufferPtr buf,
     if (def->period)
         virBufferAsprintf(&childrenBuf, "<stats period='%i'/>\n", def->period);
 
-    virDomainDeviceInfoFormat(&childrenBuf, &def->info, flags);
+    if (virDomainDeviceInfoFormat(&childrenBuf, &def->info, flags) < 0)
+        goto cleanup;
 
     if (def->virtio) {
         virBuffer driverBuf = VIR_BUFFER_INITIALIZER;
 
         virDomainVirtioOptionsFormat(&driverBuf, def->virtio);
 
-        if (virBufferCheckError(&driverBuf) < 0) {
-            virBufferFreeAndReset(&childrenBuf);
-            return -1;
-        }
+        if (virBufferCheckError(&driverBuf) < 0)
+            goto cleanup;
+
         if (virBufferUse(&driverBuf)) {
             virBufferAddLit(&childrenBuf, "<driver");
             virBufferAddBuffer(&childrenBuf, &driverBuf);
@@ -25694,7 +25965,7 @@ virDomainMemballoonDefFormat(virBufferPtr buf,
     }
 
     if (virBufferCheckError(&childrenBuf) < 0)
-        return -1;
+        goto cleanup;
 
     if (!virBufferUse(&childrenBuf)) {
         virBufferAddLit(buf, "/>\n");
@@ -25704,7 +25975,12 @@ virDomainMemballoonDefFormat(virBufferPtr buf,
         virBufferAddLit(buf, "</memballoon>\n");
     }
 
-    return 0;
+    ret = 0;
+
+ cleanup:
+    virBufferFreeAndReset(&childrenBuf);
+
+    return ret;
 }
 
 static int
@@ -25714,7 +25990,8 @@ virDomainNVRAMDefFormat(virBufferPtr buf,
 {
     virBufferAddLit(buf, "<nvram>\n");
     virBufferAdjustIndent(buf, 2);
-    virDomainDeviceInfoFormat(buf, &def->info, flags);
+    if (virDomainDeviceInfoFormat(buf, &def->info, flags) < 0)
+        return -1;
 
     virBufferAdjustIndent(buf, -2);
     virBufferAddLit(buf, "</nvram>\n");
@@ -25731,25 +26008,27 @@ virDomainWatchdogDefFormat(virBufferPtr buf,
     const char *model = virDomainWatchdogModelTypeToString(def->model);
     const char *action = virDomainWatchdogActionTypeToString(def->action);
     virBuffer childBuf = VIR_BUFFER_INITIALIZER;
+    int ret = -1;
 
     virBufferSetChildIndent(&childBuf, buf);
 
     if (!model) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("unexpected watchdog model %d"), def->model);
-        return -1;
+        goto cleanup;
     }
 
     if (!action) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("unexpected watchdog action %d"), def->action);
-        return -1;
+        goto cleanup;
     }
 
-    virDomainDeviceInfoFormat(&childBuf, &def->info, flags);
+    if (virDomainDeviceInfoFormat(&childBuf, &def->info, flags) < 0)
+        goto cleanup;
 
     if (virBufferCheckError(&childBuf) < 0)
-        return -1;
+        goto cleanup;
 
     virBufferAsprintf(buf, "<watchdog model='%s' action='%s'",
                       model, action);
@@ -25762,13 +26041,19 @@ virDomainWatchdogDefFormat(virBufferPtr buf,
         virBufferAddLit(buf, "/>\n");
     }
 
-    return 0;
+    ret = 0;
+
+ cleanup:
+    virBufferFreeAndReset(&childBuf);
+
+    return ret;
 }
 
 static int virDomainPanicDefFormat(virBufferPtr buf,
                                    virDomainPanicDefPtr def)
 {
     virBuffer childrenBuf = VIR_BUFFER_INITIALIZER;
+    int ret = -1;
 
     virBufferAddLit(buf, "<panic");
 
@@ -25777,10 +26062,11 @@ static int virDomainPanicDefFormat(virBufferPtr buf,
                           virDomainPanicModelTypeToString(def->model));
 
     virBufferSetChildIndent(&childrenBuf, buf);
-    virDomainDeviceInfoFormat(&childrenBuf, &def->info, 0);
+    if (virDomainDeviceInfoFormat(&childrenBuf, &def->info, 0) < 0)
+        goto cleanup;
 
     if (virBufferCheckError(&childrenBuf) < 0)
-        return -1;
+        goto cleanup;
 
     if (virBufferUse(&childrenBuf)) {
         virBufferAddLit(buf, ">\n");
@@ -25789,8 +26075,13 @@ static int virDomainPanicDefFormat(virBufferPtr buf,
     } else {
         virBufferAddLit(buf, "/>\n");
     }
+
+    ret = 0;
+
+ cleanup:
     virBufferFreeAndReset(&childrenBuf);
-    return 0;
+
+    return ret;
 }
 
 static int
@@ -25824,7 +26115,8 @@ virDomainShmemDefFormat(virBufferPtr buf,
         virBufferAddLit(buf, "/>\n");
     }
 
-    virDomainDeviceInfoFormat(buf, &def->info, flags);
+    if (virDomainDeviceInfoFormat(buf, &def->info, flags) < 0)
+        return -1;
 
     virBufferAdjustIndent(buf, -2);
     virBufferAddLit(buf, "</shmem>\n");
@@ -25840,6 +26132,7 @@ virDomainRNGDefFormat(virBufferPtr buf,
     const char *model = virDomainRNGModelTypeToString(def->model);
     const char *backend = virDomainRNGBackendTypeToString(def->backend);
     virBuffer driverBuf = VIR_BUFFER_INITIALIZER;
+    int ret = -1;
 
     virBufferAsprintf(buf, "<rng model='%s'>\n", model);
     virBufferAdjustIndent(buf, 2);
@@ -25858,11 +26151,11 @@ virDomainRNGDefFormat(virBufferPtr buf,
 
     case VIR_DOMAIN_RNG_BACKEND_EGD:
         if (virDomainChrAttrsDefFormat(buf, def->source.chardev, false) < 0)
-            return -1;
+            goto cleanup;
         virBufferAddLit(buf, ">\n");
         virBufferAdjustIndent(buf, 2);
         if (virDomainChrSourceDefFormat(buf, def->source.chardev, flags) < 0)
-            return -1;
+            goto cleanup;
         virBufferAdjustIndent(buf, -2);
         virBufferAddLit(buf, "</backend>\n");
 
@@ -25872,7 +26165,7 @@ virDomainRNGDefFormat(virBufferPtr buf,
 
     virDomainVirtioOptionsFormat(&driverBuf, def->virtio);
     if (virBufferCheckError(&driverBuf) < 0)
-        return -1;
+        goto cleanup;
 
     if (virBufferUse(&driverBuf)) {
         virBufferAddLit(buf, "<driver");
@@ -25880,11 +26173,18 @@ virDomainRNGDefFormat(virBufferPtr buf,
         virBufferAddLit(buf, "/>\n");
     }
 
-    virDomainDeviceInfoFormat(buf, &def->info, flags);
+    if (virDomainDeviceInfoFormat(buf, &def->info, flags) < 0)
+        goto cleanup;
 
     virBufferAdjustIndent(buf, -2);
     virBufferAddLit(buf, "</rng>\n");
-    return 0;
+
+    ret = 0;
+
+ cleanup:
+    virBufferFreeAndReset(&driverBuf);
+
+    return ret;
 }
 
 void
@@ -26001,7 +26301,8 @@ virDomainMemoryDefFormat(virBufferPtr buf,
 
     virDomainMemoryTargetDefFormat(buf, def);
 
-    virDomainDeviceInfoFormat(buf, &def->info, flags);
+    if (virDomainDeviceInfoFormat(buf, &def->info, flags) < 0)
+        return -1;
 
     virBufferAdjustIndent(buf, -2);
     virBufferAddLit(buf, "</memory>\n");
@@ -26031,18 +26332,19 @@ virDomainVideoDefFormat(virBufferPtr buf,
 {
     const char *model = virDomainVideoTypeToString(def->type);
     virBuffer driverBuf = VIR_BUFFER_INITIALIZER;
+    int ret = -1;
 
     if (!model) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("unexpected video model %d"), def->type);
-        return -1;
+        goto cleanup;
     }
 
     virBufferAddLit(buf, "<video>\n");
     virBufferAdjustIndent(buf, 2);
     virDomainVirtioOptionsFormat(&driverBuf, def->virtio);
     if (virBufferCheckError(&driverBuf) < 0)
-        return -1;
+        goto cleanup;
     if (virBufferUse(&driverBuf) || (def->driver && def->driver->vgaconf)) {
         virBufferAddLit(buf, "<driver");
         if (virBufferUse(&driverBuf))
@@ -26077,11 +26379,18 @@ virDomainVideoDefFormat(virBufferPtr buf,
         virBufferAddLit(buf, "/>\n");
     }
 
-    virDomainDeviceInfoFormat(buf, &def->info, flags);
+    if (virDomainDeviceInfoFormat(buf, &def->info, flags) < 0)
+        goto cleanup;
 
     virBufferAdjustIndent(buf, -2);
     virBufferAddLit(buf, "</video>\n");
-    return 0;
+
+    ret = 0;
+
+ cleanup:
+    virBufferFreeAndReset(&driverBuf);
+
+    return ret;
 }
 
 static int
@@ -26093,6 +26402,7 @@ virDomainInputDefFormat(virBufferPtr buf,
     const char *bus = virDomainInputBusTypeToString(def->bus);
     virBuffer childbuf = VIR_BUFFER_INITIALIZER;
     virBuffer driverBuf = VIR_BUFFER_INITIALIZER;
+    int ret = -1;
 
     /* don't format keyboard into migratable XML for backward compatibility */
     if (flags & VIR_DOMAIN_DEF_FORMAT_MIGRATABLE &&
@@ -26104,12 +26414,12 @@ virDomainInputDefFormat(virBufferPtr buf,
     if (!type) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("unexpected input type %d"), def->type);
-        return -1;
+        goto cleanup;
     }
     if (!bus) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("unexpected input bus type %d"), def->bus);
-        return -1;
+        goto cleanup;
     }
 
     virBufferAsprintf(buf, "<input type='%s' bus='%s'",
@@ -26118,7 +26428,7 @@ virDomainInputDefFormat(virBufferPtr buf,
     virBufferSetChildIndent(&childbuf, buf);
     virDomainVirtioOptionsFormat(&driverBuf, def->virtio);
     if (virBufferCheckError(&driverBuf) < 0)
-        return -1;
+        goto cleanup;
 
     if (virBufferUse(&driverBuf)) {
         virBufferAddLit(&childbuf, "<driver");
@@ -26126,10 +26436,11 @@ virDomainInputDefFormat(virBufferPtr buf,
         virBufferAddLit(&childbuf, "/>\n");
     }
     virBufferEscapeString(&childbuf, "<source evdev='%s'/>\n", def->source.evdev);
-    virDomainDeviceInfoFormat(&childbuf, &def->info, flags);
+    if (virDomainDeviceInfoFormat(&childbuf, &def->info, flags) < 0)
+        goto cleanup;
 
     if (virBufferCheckError(&childbuf) < 0)
-        return -1;
+        goto cleanup;
 
     if (!virBufferUse(&childbuf)) {
         virBufferAddLit(buf, "/>\n");
@@ -26139,7 +26450,13 @@ virDomainInputDefFormat(virBufferPtr buf,
         virBufferAddLit(buf, "</input>\n");
     }
 
-    return 0;
+    ret = 0;
+
+ cleanup:
+    virBufferFreeAndReset(&childbuf);
+    virBufferFreeAndReset(&driverBuf);
+
+    return ret;
 }
 
 
@@ -26720,9 +27037,11 @@ virDomainHostdevDefFormat(virBufferPtr buf,
     if (def->shareable)
         virBufferAddLit(buf, "<shareable/>\n");
 
-    virDomainDeviceInfoFormat(buf, def->info,
-                              flags | VIR_DOMAIN_DEF_FORMAT_ALLOW_BOOT
-                              | VIR_DOMAIN_DEF_FORMAT_ALLOW_ROM);
+    if (virDomainDeviceInfoFormat(buf, def->info,
+                                  flags | VIR_DOMAIN_DEF_FORMAT_ALLOW_BOOT
+                                  | VIR_DOMAIN_DEF_FORMAT_ALLOW_ROM) < 0) {
+        return -1;
+    }
 
     virBufferAdjustIndent(buf, -2);
     virBufferAddLit(buf, "</hostdev>\n");
@@ -26748,8 +27067,10 @@ virDomainRedirdevDefFormat(virBufferPtr buf,
     if (virDomainChrSourceDefFormat(buf, def->source, flags) < 0)
         return -1;
 
-    virDomainDeviceInfoFormat(buf, &def->info,
-                              flags | VIR_DOMAIN_DEF_FORMAT_ALLOW_BOOT);
+    if (virDomainDeviceInfoFormat(buf, &def->info,
+                                  flags | VIR_DOMAIN_DEF_FORMAT_ALLOW_BOOT) < 0) {
+        return -1;
+    }
     virBufferAdjustIndent(buf, -2);
     virBufferAddLit(buf, "</redirdev>\n");
     return 0;
@@ -26801,19 +27122,21 @@ virDomainHubDefFormat(virBufferPtr buf,
 {
     const char *type = virDomainHubTypeToString(def->type);
     virBuffer childBuf = VIR_BUFFER_INITIALIZER;
+    int ret = -1;
 
     virBufferSetChildIndent(&childBuf, buf);
 
     if (!type) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("unexpected hub type %d"), def->type);
-        return -1;
+        goto cleanup;
     }
 
-    virDomainDeviceInfoFormat(&childBuf, &def->info, flags);
+    if (virDomainDeviceInfoFormat(&childBuf, &def->info, flags) < 0)
+        goto cleanup;
 
     if (virBufferCheckError(&childBuf) < 0)
-        return -1;
+        goto cleanup;
 
     virBufferAsprintf(buf, "<hub type='%s'", type);
     if (virBufferUse(&childBuf)) {
@@ -26824,7 +27147,12 @@ virDomainHubDefFormat(virBufferPtr buf,
         virBufferAddLit(buf, "/>\n");
     }
 
-    return 0;
+    ret = 0;
+
+ cleanup:
+    virBufferFreeAndReset(&childBuf);
+
+    return ret;
 }
 
 
@@ -27055,12 +27383,41 @@ virDomainCachetuneDefFormatHelper(unsigned int level,
 
 
 static int
+virDomainResctrlMonDefFormatHelper(virDomainResctrlMonDefPtr domresmon,
+                                   virResctrlMonitorType tag,
+                                   virBufferPtr buf)
+{
+    char *vcpus = NULL;
+
+    if (domresmon->tag != tag)
+        return 0;
+
+    virBufferAddLit(buf, "<monitor ");
+
+    if (tag == VIR_RESCTRL_MONITOR_TYPE_CACHE) {
+        virBufferAsprintf(buf, "level='%u' ",
+                          VIR_DOMAIN_RESCTRL_MONITOR_CACHELEVEL);
+    }
+
+    vcpus = virBitmapFormat(domresmon->vcpus);
+    if (!vcpus)
+        return -1;
+
+    virBufferAsprintf(buf, "vcpus='%s'/>\n", vcpus);
+
+    VIR_FREE(vcpus);
+    return 0;
+}
+
+
+static int
 virDomainCachetuneDefFormat(virBufferPtr buf,
                             virDomainResctrlDefPtr resctrl,
                             unsigned int flags)
 {
     virBuffer childrenBuf = VIR_BUFFER_INITIALIZER;
     char *vcpus = NULL;
+    size_t i = 0;
     int ret = -1;
 
     virBufferSetChildIndent(&childrenBuf, buf);
@@ -27068,6 +27425,13 @@ virDomainCachetuneDefFormat(virBufferPtr buf,
                                     virDomainCachetuneDefFormatHelper,
                                     &childrenBuf) < 0)
         goto cleanup;
+
+    for (i = 0; i < resctrl->nmonitors; i ++) {
+        if (virDomainResctrlMonDefFormatHelper(resctrl->monitors[i],
+                                               VIR_RESCTRL_MONITOR_TYPE_CACHE,
+                                               &childrenBuf) < 0)
+            goto cleanup;
+    }
 
     if (virBufferCheckError(&childrenBuf) < 0)
         goto cleanup;
@@ -27490,7 +27854,8 @@ virDomainVsockDefFormat(virBufferPtr buf,
     if (virXMLFormatElement(&childBuf, "cid", &cidAttrBuf, NULL) < 0)
         goto cleanup;
 
-    virDomainDeviceInfoFormat(&childBuf, &vsock->info, 0);
+    if (virDomainDeviceInfoFormat(&childBuf, &vsock->info, 0) < 0)
+        goto cleanup;
 
     if (virXMLFormatElement(buf, "vsock", &attrBuf, &childBuf) < 0)
         goto cleanup;
@@ -27950,6 +28315,8 @@ virDomainDefFormatInternal(virDomainDefPtr def,
                     case VIR_DOMAIN_HYPERV_FREQUENCIES:
                     case VIR_DOMAIN_HYPERV_REENLIGHTENMENT:
                     case VIR_DOMAIN_HYPERV_TLBFLUSH:
+                    case VIR_DOMAIN_HYPERV_IPI:
+                    case VIR_DOMAIN_HYPERV_EVMCS:
                         break;
 
                     case VIR_DOMAIN_HYPERV_SPINLOCKS:

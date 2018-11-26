@@ -193,10 +193,10 @@ virQEMUDriverConfigPtr virQEMUDriverConfigNew(bool privileged)
         if (virAsprintf(&cfg->swtpmStorageDir, "%s/lib/libvirt/swtpm",
                         LOCALSTATEDIR) < 0)
             goto error;
-        if (virDoesUserExist("tss") != 0 ||
+        if (!virDoesUserExist("tss") ||
             virGetUserID("tss", &cfg->swtpm_user) < 0)
             cfg->swtpm_user = 0; /* fall back to root */
-        if (virDoesGroupExist("tss") != 0 ||
+        if (!virDoesGroupExist("tss") ||
             virGetGroupID("tss", &cfg->swtpm_group) < 0)
             cfg->swtpm_group = 0; /* fall back to root */
     } else {
@@ -426,7 +426,6 @@ static void virQEMUDriverConfigDispose(void *obj)
     virStringListFree(cfg->securityDriverNames);
 
     VIR_FREE(cfg->lockManagerName);
-    VIR_FREE(cfg->metadataLockManagerName);
 
     virFirmwareFreeList(cfg->firmwares, cfg->nfirmwares);
 
@@ -1400,7 +1399,7 @@ qemuSharedDeviceEntryInsert(virQEMUDriverPtr driver,
  * records all the domains that use the shared device if the entry
  * already exists, otherwise add a new entry.
  */
-static int
+int
 qemuAddSharedDisk(virQEMUDriverPtr driver,
                   virDomainDiskDefPtr disk,
                   const char *name)

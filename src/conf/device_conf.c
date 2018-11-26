@@ -28,6 +28,7 @@
 #include "viruuid.h"
 #include "virbuffer.h"
 #include "device_conf.h"
+#include "domain_addr.h"
 #include "virstring.h"
 
 #define VIR_FROM_THIS VIR_FROM_DEVICE
@@ -46,6 +47,45 @@ VIR_ENUM_IMPL(virDomainDeviceAddress, VIR_DOMAIN_DEVICE_ADDRESS_TYPE_LAST,
               "isa",
               "dimm",
 );
+
+static int
+virZPCIDeviceAddressParseXML(xmlNodePtr node,
+                             virPCIDeviceAddressPtr addr)
+{
+    virZPCIDeviceAddress def = { 0 };
+    char *uid;
+    char *fid;
+    int ret = -1;
+
+    uid = virXMLPropString(node, "uid");
+    fid = virXMLPropString(node, "fid");
+
+    if (uid &&
+        virStrToLong_uip(uid, NULL, 0, &def.uid) < 0) {
+        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+                       _("Cannot parse <address> 'uid' attribute"));
+        goto cleanup;
+    }
+
+    if (fid &&
+        virStrToLong_uip(fid, NULL, 0, &def.fid) < 0) {
+        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+                       _("Cannot parse <address> 'fid' attribute"));
+        goto cleanup;
+    }
+
+    if (!virZPCIDeviceAddressIsEmpty(&def) &&
+        !virZPCIDeviceAddressIsValid(&def))
+        goto cleanup;
+
+    addr->zpci = def;
+    ret = 0;
+
+ cleanup:
+    VIR_FREE(uid);
+    VIR_FREE(fid);
+    return ret;
+}
 
 int
 virDomainDeviceInfoCopy(virDomainDeviceInfoPtr dst,
@@ -176,11 +216,28 @@ virDeviceInfoPCIAddressIsPresent(const virDomainDeviceInfo *info)
 }
 
 
+bool
+virDeviceInfoPCIAddressExtensionIsWanted(const virDomainDeviceInfo *info)
+{
+    return (info->addr.pci.extFlags & VIR_PCI_ADDRESS_EXTENSION_ZPCI) &&
+           virZPCIDeviceAddressIsEmpty(&info->addr.pci.zpci);
+}
+
+bool
+virDeviceInfoPCIAddressExtensionIsPresent(const virDomainDeviceInfo *info)
+{
+    return (info->addr.pci.extFlags & VIR_PCI_ADDRESS_EXTENSION_ZPCI) &&
+           !virZPCIDeviceAddressIsEmpty(&info->addr.pci.zpci);
+}
+
+
 int
 virPCIDeviceAddressParseXML(xmlNodePtr node,
                             virPCIDeviceAddressPtr addr)
 {
     char *domain, *slot, *bus, *function, *multi;
+    xmlNodePtr cur;
+    xmlNodePtr zpci = NULL;
     int ret = -1;
 
     memset(addr, 0, sizeof(*addr));
@@ -228,6 +285,18 @@ virPCIDeviceAddressParseXML(xmlNodePtr node,
 
     }
     if (!virPCIDeviceAddressIsEmpty(addr) && !virPCIDeviceAddressIsValid(addr, true))
+        goto cleanup;
+
+    cur = node->children;
+    while (cur) {
+        if (cur->type == XML_ELEMENT_NODE &&
+            virXMLNodeNameEqual(cur, "zpci")) {
+            zpci = cur;
+        }
+        cur = cur->next;
+    }
+
+    if (zpci && virZPCIDeviceAddressParseXML(zpci, addr) < 0)
         goto cleanup;
 
     ret = 0;

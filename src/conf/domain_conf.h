@@ -255,6 +255,7 @@ typedef enum {
     VIR_DOMAIN_OSTYPE_LINUX,
     VIR_DOMAIN_OSTYPE_EXE,
     VIR_DOMAIN_OSTYPE_UML,
+    VIR_DOMAIN_OSTYPE_XENPVH,
 
     VIR_DOMAIN_OSTYPE_LAST
 } virDomainOSType;
@@ -607,6 +608,7 @@ typedef enum {
     VIR_DOMAIN_MEMORY_SOURCE_NONE = 0,  /* No memory source defined */
     VIR_DOMAIN_MEMORY_SOURCE_FILE,      /* Memory source is set as file */
     VIR_DOMAIN_MEMORY_SOURCE_ANONYMOUS, /* Memory source is set as anonymous */
+    VIR_DOMAIN_MEMORY_SOURCE_MEMFD,     /* Memory source is set as memfd */
 
     VIR_DOMAIN_MEMORY_SOURCE_LAST,
 } virDomainMemorySource;
@@ -1795,6 +1797,8 @@ typedef enum {
     VIR_DOMAIN_HYPERV_FREQUENCIES,
     VIR_DOMAIN_HYPERV_REENLIGHTENMENT,
     VIR_DOMAIN_HYPERV_TLBFLUSH,
+    VIR_DOMAIN_HYPERV_IPI,
+    VIR_DOMAIN_HYPERV_EVMCS,
 
     VIR_DOMAIN_HYPERV_LAST
 } virDomainHyperv;
@@ -2236,12 +2240,23 @@ struct _virDomainCputune {
 };
 
 
+typedef struct _virDomainResctrlMonDef virDomainResctrlMonDef;
+typedef virDomainResctrlMonDef *virDomainResctrlMonDefPtr;
+struct _virDomainResctrlMonDef {
+    virBitmapPtr vcpus;
+    virResctrlMonitorType tag;
+    virResctrlMonitorPtr instance;
+};
+
 typedef struct _virDomainResctrlDef virDomainResctrlDef;
 typedef virDomainResctrlDef *virDomainResctrlDefPtr;
 
 struct _virDomainResctrlDef {
     virBitmapPtr vcpus;
     virResctrlAllocPtr alloc;
+
+    virDomainResctrlMonDefPtr *monitors;
+    size_t nmonitors;
 };
 
 

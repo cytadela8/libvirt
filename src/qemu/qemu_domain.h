@@ -286,7 +286,6 @@ struct _qemuDomainObjPrivate {
     qemuAgentPtr agent;
     bool agentError;
 
-    bool gotShutdown;
     bool beingDestroyed;
     char *pidfile;
 
@@ -370,6 +369,9 @@ struct _qemuDomainObjPrivate {
     /* qemuProcessStartCPUs stores the reason for starting vCPUs here for the
      * RESUME event handler to use it */
     virDomainRunningReason runningReason;
+
+    /* true if libvirt remembers the original owner for files */
+    bool rememberOwner;
 };
 
 # define QEMU_DOMAIN_PRIVATE(vm) \
@@ -1088,5 +1090,8 @@ void qemuDomainStorageIdReset(qemuDomainObjPrivatePtr priv);
 
 virDomainEventResumedDetailType
 qemuDomainRunningReasonToResumeEvent(virDomainRunningReason reason);
+
+bool
+qemuDomainIsUsingNoShutdown(qemuDomainObjPrivatePtr priv);
 
 #endif /* __QEMU_DOMAIN_H__ */

@@ -96,7 +96,7 @@ script:
       -e MINGW="$MINGW"
       -e XEN_BRANCH="$XEN_BRANCH"
       -e DISTCHECK_CONFIGURE_FLAGS="$DISTCHECK_CONFIGURE_FLAGS"
-      "libvirt/buildenv-$IMAGE"
+      "quay.io/libvirt/buildenv-$IMAGE:master"
       /bin/sh -xc "($DOCKER_PRE_CMD;) && $DOCKER_CMD"
 
 git:

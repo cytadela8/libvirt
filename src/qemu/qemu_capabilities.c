@@ -508,6 +508,13 @@ VIR_ENUM_IMPL(virQEMUCaps, QEMU_CAPS_LAST,
               /* 315 */
               "vfio-pci.display",
               "blockdev",
+              "vfio-ap",
+              "zpci",
+              "memory-backend-memfd",
+
+              /* 320 */
+              "memory-backend-memfd.hugetlb",
+              "iothread.poll-max-ns",
     );
 
 
@@ -1092,6 +1099,9 @@ struct virQEMUCapsStringFlags virQEMUCapsObjectTypes[] = {
     { "vhost-vsock-device", QEMU_CAPS_DEVICE_VHOST_VSOCK },
     { "mch", QEMU_CAPS_DEVICE_MCH },
     { "sev-guest", QEMU_CAPS_SEV_GUEST },
+    { "vfio-ap", QEMU_CAPS_DEVICE_VFIO_AP },
+    { "zpci", QEMU_CAPS_DEVICE_ZPCI },
+    { "memory-backend-memfd", QEMU_CAPS_OBJECT_MEMORY_MEMFD },
 };
 
 static struct virQEMUCapsStringFlags virQEMUCapsDevicePropsVirtioBalloon[] = {
@@ -1237,6 +1247,7 @@ static struct virQEMUCapsStringFlags virQEMUCapsQMPSchemaQueries[] = {
     { "nbd-server-start/arg-type/tls-creds", QEMU_CAPS_NBD_TLS },
     { "screendump/arg-type/device", QEMU_CAPS_SCREENDUMP_DEVICE },
     { "block-commit/arg-type/*top",  QEMU_CAPS_ACTIVE_COMMIT },
+    { "query-iothreads/ret-type/poll-max-ns", QEMU_CAPS_IOTHREAD_POLLING },
 };
 
 typedef struct _virQEMUCapsObjectTypeProps virQEMUCapsObjectTypeProps;
@@ -1354,6 +1365,10 @@ static struct virQEMUCapsStringFlags virQEMUCapsObjectPropsMemoryBackendFile[] =
     { "discard-data", QEMU_CAPS_OBJECT_MEMORY_FILE_DISCARD },
 };
 
+static struct virQEMUCapsStringFlags virQEMUCapsObjectPropsMemoryBackendMemfd[] = {
+    { "hugetlb", QEMU_CAPS_OBJECT_MEMORY_MEMFD_HUGETLB },
+};
+
 static struct virQEMUCapsStringFlags virQEMUCapsObjectPropsSPAPRMachine[] = {
     { "cap-hpt-max-page-size", QEMU_CAPS_MACHINE_PSERIES_CAP_HPT_MAX_PAGE_SIZE },
     { "cap-htm", QEMU_CAPS_MACHINE_PSERIES_CAP_HTM },
@@ -1363,6 +1378,9 @@ static virQEMUCapsObjectTypeProps virQEMUCapsObjectProps[] = {
     { "memory-backend-file", virQEMUCapsObjectPropsMemoryBackendFile,
       ARRAY_CARDINALITY(virQEMUCapsObjectPropsMemoryBackendFile),
       QEMU_CAPS_OBJECT_MEMORY_FILE },
+    { "memory-backend-memfd", virQEMUCapsObjectPropsMemoryBackendMemfd,
+      ARRAY_CARDINALITY(virQEMUCapsObjectPropsMemoryBackendMemfd),
+      QEMU_CAPS_OBJECT_MEMORY_MEMFD },
     { "spapr-machine", virQEMUCapsObjectPropsSPAPRMachine,
       ARRAY_CARDINALITY(virQEMUCapsObjectPropsSPAPRMachine),
       -1 },
@@ -1697,6 +1715,10 @@ bool virQEMUCapsHasPCIMultiBus(virQEMUCapsPtr qemuCaps,
 
         return false;
     }
+
+    /* S390 supports PCI-multibus. */
+    if (ARCH_IS_S390(def->os.arch))
+        return true;
 
     /* If ARM 'virt' supports PCI, it supports multibus.
      * No extra conditions here for simplicity.

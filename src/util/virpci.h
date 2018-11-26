@@ -37,12 +37,24 @@ typedef virPCIDeviceAddress *virPCIDeviceAddressPtr;
 typedef struct _virPCIDeviceList virPCIDeviceList;
 typedef virPCIDeviceList *virPCIDeviceListPtr;
 
+# define VIR_DOMAIN_DEVICE_ZPCI_MAX_UID UINT16_MAX
+# define VIR_DOMAIN_DEVICE_ZPCI_MAX_FID UINT32_MAX
+
+typedef struct _virZPCIDeviceAddress virZPCIDeviceAddress;
+typedef virZPCIDeviceAddress *virZPCIDeviceAddressPtr;
+struct _virZPCIDeviceAddress {
+    unsigned int uid; /* exempt from syntax-check */
+    unsigned int fid;
+};
+
 struct _virPCIDeviceAddress {
     unsigned int domain;
     unsigned int bus;
     unsigned int slot;
     unsigned int function;
     int multi; /* virTristateSwitch */
+    int extFlags; /* enum virPCIDeviceAddressExtensionFlags */
+    virZPCIDeviceAddress zpci;
 };
 
 typedef enum {
@@ -229,6 +241,9 @@ char *virPCIDeviceAddressAsString(virPCIDeviceAddressPtr addr)
       ATTRIBUTE_NONNULL(1);
 
 int virPCIDeviceAddressParse(char *address, virPCIDeviceAddressPtr bdf);
+
+bool virZPCIDeviceAddressIsValid(virZPCIDeviceAddressPtr zpci);
+bool virZPCIDeviceAddressIsEmpty(const virZPCIDeviceAddress *addr);
 
 int virPCIGetVirtualFunctionInfo(const char *vf_sysfs_device_path,
                                  int pfNetDevIdx,

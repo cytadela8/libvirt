@@ -45,7 +45,6 @@ typedef enum {
 
 virSecurityManagerPtr virSecurityManagerNew(const char *name,
                                             const char *virtDriver,
-                                            const char *lockManagerPluginName,
                                             unsigned int flags);
 
 virSecurityManagerPtr virSecurityManagerNewStack(virSecurityManagerPtr primary);
@@ -71,7 +70,6 @@ virSecurityManagerPtr virSecurityManagerNewDAC(const char *virtDriver,
                                                uid_t user,
                                                gid_t group,
                                                unsigned int flags,
-                                               const char *lockManagerPluginName,
                                                virSecurityManagerDACChownCallback chownCallback);
 
 int virSecurityManagerPreFork(virSecurityManagerPtr mgr);
@@ -79,7 +77,8 @@ void virSecurityManagerPostFork(virSecurityManagerPtr mgr);
 
 int virSecurityManagerTransactionStart(virSecurityManagerPtr mgr);
 int virSecurityManagerTransactionCommit(virSecurityManagerPtr mgr,
-                                        pid_t pid);
+                                        pid_t pid,
+                                        bool lock);
 void virSecurityManagerTransactionAbort(virSecurityManagerPtr mgr);
 
 void *virSecurityManagerGetPrivateData(virSecurityManagerPtr mgr);
@@ -199,11 +198,16 @@ int virSecurityManagerSetTPMLabels(virSecurityManagerPtr mgr,
 int virSecurityManagerRestoreTPMLabels(virSecurityManagerPtr mgr,
                                        virDomainDefPtr vm);
 
-int virSecurityManagerMetadataLock(virSecurityManagerPtr mgr,
-                                   const char * const *paths,
-                                   size_t npaths);
-int virSecurityManagerMetadataUnlock(virSecurityManagerPtr mgr,
-                                     const char * const *paths,
-                                     size_t npaths);
+typedef struct _virSecurityManagerMetadataLockState virSecurityManagerMetadataLockState;
+typedef virSecurityManagerMetadataLockState *virSecurityManagerMetadataLockStatePtr;
+
+virSecurityManagerMetadataLockStatePtr
+virSecurityManagerMetadataLock(virSecurityManagerPtr mgr,
+                               const char **paths,
+                               size_t npaths);
+
+void
+virSecurityManagerMetadataUnlock(virSecurityManagerPtr mgr,
+                                 virSecurityManagerMetadataLockStatePtr *state);
 
 #endif /* VIR_SECURITY_MANAGER_H__ */

@@ -472,6 +472,7 @@ sc_prohibit_canonicalize_file_name:
 # Insist on correct types for [pug]id.
 sc_correct_id_types:
 	@prohibit='\<(int|long) *[pug]id\>' \
+	exclude='exempt from syntax-check' \
 	halt='use pid_t for pid, uid_t for uid, gid_t for gid' \
 	  $(_sc_search_regexp)
 
@@ -787,10 +788,8 @@ sc_prohibit_cross_inclusion:
 	  case $$dir in \
 	    util/) safe="util";; \
 	    access/ | conf/) safe="($$dir|conf|util)";; \
-	    cpu/| network/| node_device/| rpc/| storage/) \
+	    cpu/| network/| node_device/| rpc/| security/| storage/) \
 	      safe="($$dir|util|conf|storage)";; \
-	    security/) \
-	      safe="($$dir|util|conf|storage|locking)";; \
 	    xenapi/ | xenconfig/ ) safe="($$dir|util|conf|xen|cpu)";; \
 	    *) safe="($$dir|$(mid_dirs)|util)";; \
 	  esac; \
@@ -1229,7 +1228,7 @@ exclude_file_name_regexp--sc_prohibit_select = \
 	^cfg\.mk$$
 
 exclude_file_name_regexp--sc_prohibit_canonicalize_file_name = \
-  ^cfg\.mk$$
+  ^(cfg\.mk|tests/virfilemock\.c)$$
 
 exclude_file_name_regexp--sc_prohibit_raw_allocation = \
   ^(docs/hacking\.html\.in|src/util/viralloc\.[ch]|examples/.*|tests/(securityselinuxhelper|(vircgroup|nss)mock|commandhelper)\.c|tools/wireshark/src/packet-libvirt\.c)$$

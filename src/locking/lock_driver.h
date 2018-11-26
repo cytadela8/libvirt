@@ -42,8 +42,6 @@ typedef enum {
 typedef enum {
     /* The managed object is a virtual guest domain */
     VIR_LOCK_MANAGER_OBJECT_TYPE_DOMAIN = 0,
-    /* The managed object is a daemon (e.g. libvirtd) */
-    VIR_LOCK_MANAGER_OBJECT_TYPE_DAEMON = 1,
 } virLockManagerObjectType;
 
 typedef enum {
@@ -51,8 +49,6 @@ typedef enum {
     VIR_LOCK_MANAGER_RESOURCE_TYPE_DISK = 0,
     /* A lease against an arbitrary resource */
     VIR_LOCK_MANAGER_RESOURCE_TYPE_LEASE = 1,
-    /* The resource to be locked is a metadata */
-    VIR_LOCK_MANAGER_RESOURCE_TYPE_METADATA = 2,
 } virLockManagerResourceType;
 
 typedef enum {
@@ -67,10 +63,6 @@ typedef enum {
     VIR_LOCK_MANAGER_ACQUIRE_REGISTER_ONLY = (1 << 0),
     /* Prevent further lock/unlock calls from this process */
     VIR_LOCK_MANAGER_ACQUIRE_RESTRICT = (1 << 1),
-    /* Used when acquiring more resources in which one of them
-     * can't be acquired, perform a rollback and release all
-     * resources acquired so far. */
-    VIR_LOCK_MANAGER_ACQUIRE_ROLLBACK = (1 << 2),
 } virLockManagerAcquireFlags;
 
 typedef enum {
@@ -124,16 +116,12 @@ struct _virLockManagerParam {
 /**
  * virLockDriverInit:
  * @version: the libvirt requested plugin ABI version
- * @configFile: path to config file
  * @flags: the libvirt requested plugin optional extras
  *
  * Allow the plugin to validate the libvirt requested
  * plugin version / flags. This allows the plugin impl
  * to block its use in versions of libvirtd which are
  * too old to support key features.
- *
- * The @configFile variable points to config file that the driver
- * should load. If NULL, no config file should be loaded.
  *
  * NB: A plugin may be loaded multiple times, for different
  * libvirt drivers (eg QEMU, LXC, UML)

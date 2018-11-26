@@ -1963,6 +1963,8 @@ qemuDomainObjPrivateDataClear(qemuDomainObjPrivatePtr priv)
     virBitmapFree(priv->namespaces);
     priv->namespaces = NULL;
 
+    priv->rememberOwner = false;
+
     priv->reconnectBlockjobs = VIR_TRISTATE_BOOL_ABSENT;
     priv->allowReboot = VIR_TRISTATE_BOOL_ABSENT;
 
@@ -2232,11 +2234,14 @@ qemuDomainObjPrivateXMLFormatBlockjobs(virBufferPtr buf,
 {
     virBuffer attrBuf = VIR_BUFFER_INITIALIZER;
     bool bj = qemuDomainHasBlockjob(vm, false);
+    int ret;
 
     virBufferAsprintf(&attrBuf, " active='%s'",
                       virTristateBoolTypeToString(virTristateBoolFromBool(bj)));
 
-    return virXMLFormatElement(buf, "blockjobs", &attrBuf, NULL);
+    ret = virXMLFormatElement(buf, "blockjobs", &attrBuf, NULL);
+    virBufferFreeAndReset(&attrBuf);
+    return ret;
 }
 
 
@@ -2476,6 +2481,9 @@ qemuDomainObjPrivateXMLFormat(virBufferPtr buf,
 
     if (priv->chardevStdioLogd)
         virBufferAddLit(buf, "<chardevStdioLogd/>\n");
+
+    if (priv->rememberOwner)
+        virBufferAddLit(buf, "<rememberOwner/>\n");
 
     qemuDomainObjPrivateXMLFormatAllowReboot(buf, priv->allowReboot);
 
@@ -2888,6 +2896,8 @@ qemuDomainObjPrivateXMLParse(xmlXPathContextPtr ctxt,
         priv->namespaces = NULL;
     }
 
+    priv->rememberOwner = virXPathBoolean("count(./rememberOwner) > 0", ctxt);
+
     if ((n = virXPathNodeSet("./vcpus/vcpu", ctxt, &nodes)) < 0)
         goto error;
 
@@ -3287,6 +3297,7 @@ qemuDomainDefAddDefaultDevices(virDomainDefPtr def,
     case VIR_ARCH_S390X:
         addDefaultUSB = false;
         addPanicDevice = true;
+        addPCIRoot = virQEMUCapsGet(qemuCaps, QEMU_CAPS_DEVICE_ZPCI);
         break;
 
     case VIR_ARCH_SPARC:
@@ -3948,7 +3959,8 @@ qemuDomainDefValidateFeatures(const virDomainDef *def,
 
 
 static int
-qemuDomainDefValidateMemory(const virDomainDef *def)
+qemuDomainDefValidateMemory(const virDomainDef *def,
+                            virQEMUCapsPtr qemuCaps)
 {
     const long system_page_size = virGetSystemPageSizeKB();
     const virDomainMemtune *mem = &def->mem;
@@ -3970,6 +3982,13 @@ qemuDomainDefValidateMemory(const virDomainDef *def)
         return -1;
     }
 
+    if (mem->source == VIR_DOMAIN_MEMORY_SOURCE_MEMFD &&
+        !virQEMUCapsGet(qemuCaps, QEMU_CAPS_OBJECT_MEMORY_MEMFD_HUGETLB)) {
+        virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
+                       _("hugepages is not support with memfd memory source"));
+        return -1;
+    }
+
     /* We can't guarantee any other mem.access
      * if no guest NUMA nodes are defined. */
     if (mem->hugepages[0].size != system_page_size &&
@@ -3980,6 +3999,29 @@ qemuDomainDefValidateMemory(const virDomainDef *def)
                        _("memory access mode '%s' not supported "
                          "without guest numa node"),
                        virDomainMemoryAccessTypeToString(mem->access));
+        return -1;
+    }
+
+    return 0;
+}
+
+
+static int
+qemuDomainValidateCpuCount(const virDomainDef *def,
+                            virQEMUCapsPtr qemuCaps)
+{
+    unsigned int maxCpus = virQEMUCapsGetMachineMaxCpus(qemuCaps, def->os.machine);
+
+    if (virDomainDefGetVcpus(def) == 0) {
+        virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
+                       _("Domain requires at least 1 vCPU"));
+        return -1;
+    }
+
+    if (maxCpus > 0 && virDomainDefGetVcpusMax(def) > maxCpus) {
+        virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
+                       _("Maximum CPUs greater than specified machine "
+                         "type limit %u"), maxCpus);
         return -1;
     }
 
@@ -4081,6 +4123,9 @@ qemuDomainDefValidate(const virDomainDef *def,
         }
     }
 
+    if (qemuDomainValidateCpuCount(def, qemuCaps) < 0)
+        goto cleanup;
+
     if (ARCH_IS_X86(def->os.arch) &&
         virDomainDefGetVcpusMax(def) > QEMU_MAX_VCPUS_WITHOUT_EIM) {
         if (!qemuDomainIsQ35(def)) {
@@ -4109,7 +4154,7 @@ qemuDomainDefValidate(const virDomainDef *def,
     if (qemuDomainDefValidateFeatures(def, qemuCaps) < 0)
         goto cleanup;
 
-    if (qemuDomainDefValidateMemory(def) < 0)
+    if (qemuDomainDefValidateMemory(def, qemuCaps) < 0)
         goto cleanup;
 
     ret = 0;
@@ -4561,11 +4606,11 @@ qemuDomainDeviceDefValidateNetwork(const virDomainNetDef *net)
 
 
 static int
-qemuDomainMdevDefValidate(const virDomainHostdevSubsysMediatedDev *mdevsrc,
-                          const virDomainDef *def,
-                          virQEMUCapsPtr qemuCaps)
+qemuDomainMdevDefVFIOPCIValidate(const virDomainHostdevSubsysMediatedDev *dev,
+                                 const virDomainDef *def,
+                                 virQEMUCapsPtr qemuCaps)
 {
-    if (mdevsrc->display == VIR_TRISTATE_SWITCH_ABSENT)
+    if (dev->display == VIR_TRISTATE_SWITCH_ABSENT)
         return 0;
 
     if (!virQEMUCapsGet(qemuCaps, QEMU_CAPS_VFIO_PCI_DISPLAY)) {
@@ -4575,7 +4620,7 @@ qemuDomainMdevDefValidate(const virDomainHostdevSubsysMediatedDev *mdevsrc,
         return -1;
     }
 
-    if (mdevsrc->model != VIR_MDEV_MODEL_TYPE_VFIO_PCI) {
+    if (dev->model != VIR_MDEV_MODEL_TYPE_VFIO_PCI) {
         virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
                        _("<hostdev> attribute 'display' is only supported"
                          " with model='vfio-pci'"));
@@ -4583,13 +4628,62 @@ qemuDomainMdevDefValidate(const virDomainHostdevSubsysMediatedDev *mdevsrc,
         return -1;
     }
 
-    if (mdevsrc->display == VIR_TRISTATE_SWITCH_ON) {
+    if (dev->display == VIR_TRISTATE_SWITCH_ON) {
         if (def->ngraphics == 0) {
             virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
                            _("graphics device is needed for attribute value "
                              "'display=on' in <hostdev>"));
             return -1;
         }
+    }
+
+    return 0;
+}
+
+
+static int
+qemuDomainMdevDefVFIOAPValidate(const virDomainDef *def)
+{
+    size_t i;
+    bool vfioap_found = false;
+
+    /* VFIO-AP is restricted to a single mediated device only */
+    for (i = 0; i < def->nhostdevs; i++) {
+        virDomainHostdevDefPtr hostdev = def->hostdevs[i];
+
+        if (virHostdevIsMdevDevice(hostdev) &&
+            hostdev->source.subsys.u.mdev.model == VIR_MDEV_MODEL_TYPE_VFIO_AP) {
+            if (vfioap_found) {
+                virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
+                               _("Only one hostdev of model vfio-ap is "
+                                 "supported"));
+                return -1;
+            }
+            vfioap_found = true;
+        }
+    }
+
+    return 0;
+}
+
+
+static int
+qemuDomainMdevDefValidate(const virDomainHostdevSubsysMediatedDev *mdevsrc,
+                          const virDomainDef *def,
+                          virQEMUCapsPtr qemuCaps)
+{
+    switch ((virMediatedDeviceModelType) mdevsrc->model) {
+    case VIR_MDEV_MODEL_TYPE_VFIO_PCI:
+        return qemuDomainMdevDefVFIOPCIValidate(mdevsrc, def, qemuCaps);
+    case VIR_MDEV_MODEL_TYPE_VFIO_AP:
+        return qemuDomainMdevDefVFIOAPValidate(def);
+    case VIR_MDEV_MODEL_TYPE_VFIO_CCW:
+        break;
+    case VIR_MDEV_MODEL_TYPE_LAST:
+    default:
+        virReportEnumRangeError(virMediatedDeviceModelType,
+                                mdevsrc->model);
+        return -1;
     }
 
     return 0;
@@ -5797,6 +5891,38 @@ qemuDomainDeviceDefValidateInput(const virDomainInputDef *input,
 
 
 static int
+qemuDomainDeviceDefValidateZPCIAddress(virDomainDeviceInfoPtr info,
+                                       virQEMUCapsPtr qemuCaps)
+{
+    if (!virZPCIDeviceAddressIsEmpty(&info->addr.pci.zpci) &&
+        !virQEMUCapsGet(qemuCaps, QEMU_CAPS_DEVICE_ZPCI)) {
+        virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
+                       "%s",
+                       _("This QEMU binary doesn't support zPCI"));
+        return -1;
+    }
+
+    return 0;
+}
+
+
+static int
+qemuDomainDeviceDefValidateAddress(const virDomainDeviceDef *dev,
+                                   virQEMUCapsPtr qemuCaps)
+{
+    virDomainDeviceInfoPtr info;
+
+    if (!(info = virDomainDeviceGetInfo((virDomainDeviceDef *)dev)))
+        return 0;
+
+    if (info->type == VIR_DOMAIN_DEVICE_ADDRESS_TYPE_PCI)
+        return qemuDomainDeviceDefValidateZPCIAddress(info, qemuCaps);
+
+    return 0;
+}
+
+
+static int
 qemuDomainDeviceDefValidate(const virDomainDeviceDef *dev,
                             const virDomainDef *def,
                             void *opaque)
@@ -5808,6 +5934,9 @@ qemuDomainDeviceDefValidate(const virDomainDeviceDef *dev,
     if (!(qemuCaps = virQEMUCapsCacheLookup(driver->qemuCapsCache,
                                             def->emulator)))
         return -1;
+
+    if ((ret = qemuDomainDeviceDefValidateAddress(dev, qemuCaps)) < 0)
+        goto cleanup;
 
     switch ((virDomainDeviceType)dev->type) {
     case VIR_DOMAIN_DEVICE_NET:
@@ -5884,6 +6013,7 @@ qemuDomainDeviceDefValidate(const virDomainDeviceDef *dev,
         break;
     }
 
+ cleanup:
     virObjectUnref(qemuCaps);
     return ret;
 }
@@ -8246,7 +8376,7 @@ int
 qemuDomainSnapshotDiscard(virQEMUDriverPtr driver,
                           virDomainObjPtr vm,
                           virDomainSnapshotObjPtr snap,
-                          bool update_current,
+                          bool update_parent,
                           bool metadata_only)
 {
     char *snapFile = NULL;
@@ -8275,7 +8405,7 @@ qemuDomainSnapshotDiscard(virQEMUDriverPtr driver,
         goto cleanup;
 
     if (snap == vm->current_snapshot) {
-        if (update_current && snap->def->parent) {
+        if (update_parent && snap->def->parent) {
             parentsnap = virDomainSnapshotFindByName(vm->snapshots,
                                                      snap->def->parent);
             if (!parentsnap) {
@@ -8298,6 +8428,8 @@ qemuDomainSnapshotDiscard(virQEMUDriverPtr driver,
 
     if (unlink(snapFile) < 0)
         VIR_WARN("Failed to unlink %s", snapFile);
+    if (update_parent)
+        virDomainSnapshotDropParent(snap);
     virDomainSnapshotObjListRemove(vm->snapshots, snap);
 
     ret = 0;
@@ -11078,9 +11210,7 @@ qemuDomainGetHostdevPath(virDomainDefPtr def,
     }
     ret = 0;
  cleanup:
-    for (i = 0; i < tmpNpaths; i++)
-        VIR_FREE(tmpPaths[i]);
-    VIR_FREE(tmpPaths);
+    virStringListFreeCount(tmpPaths, tmpNpaths);
     VIR_FREE(tmpPerms);
     virPCIDeviceFree(pci);
     virUSBDeviceFree(usb);
@@ -13557,4 +13687,21 @@ qemuDomainRunningReasonToResumeEvent(virDomainRunningReason reason)
     }
 
     return VIR_DOMAIN_EVENT_RESUMED_UNPAUSED;
+}
+
+
+/* qemuDomainIsUsingNoShutdown:
+ * @priv: Domain private data
+ *
+ * If JSON monitor is enabled, we can receive an event when QEMU stops. If
+ * we use no-shutdown, then we can watch for this event and do a soft/warm
+ * reboot.
+ *
+ * Returns: @true when -no-shutdown either should be or was added to the
+ * command line.
+ */
+bool
+qemuDomainIsUsingNoShutdown(qemuDomainObjPrivatePtr priv)
+{
+    return priv->monJSON && priv->allowReboot == VIR_TRISTATE_BOOL_YES;
 }
