@@ -681,6 +681,8 @@ libxlMakeDomBuildInfo(virDomainDefPtr def,
             return -1;
         }
 #endif
+        if (def->gfx_passthru)
+            libxl_defbool_set(&b_info->u.hvm.gfx_passthru, 1);
     } else if (pvh) {
         b_info->cmdline = g_strdup(def->os.cmdline);
         b_info->kernel = g_strdup(def->os.kernel);

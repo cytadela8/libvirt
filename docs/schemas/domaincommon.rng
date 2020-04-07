@@ -5071,6 +5071,11 @@
   </define>
   <define name="devices">
     <element name="devices">
+      <optional>
+        <attribute name="gfx_passthru">
+          <ref name="virYesNo"/>
+        </attribute>
+      </optional>
       <interleave>
         <optional>
           <ref name="emulator"/>

@@ -20959,6 +20959,13 @@ virDomainDefParseXML(xmlDocPtr xml,
     }
     def->emulator_cmdline = virXPathString("string(./devices/emulator/@cmdline)", ctxt);
 
+    def->gfx_passthru = false;
+    if ((tmp = virXPathString("string(./devices/@gfx_passthru)", ctxt)) != NULL) {
+        if (STREQ(tmp, "yes"))
+            def->gfx_passthru = true;
+        VIR_FREE(tmp);
+    }
+
     n = virXPathULong("string(./devices/emulator/@memory)",
                       ctxt,
                       &def->emulator_memory);
@@ -28942,7 +28949,10 @@ virDomainDefFormatInternalSetRootName(virDomainDefPtr def,
 
     virDomainPerfDefFormat(buf, &def->perf);
 
-    virBufferAddLit(buf, "<devices>\n");
+    virBufferAddLit(buf, "<devices");
+    if (def->gfx_passthru)
+        virBufferAddLit(buf, " gfx_passthru='yes'");
+    virBufferAddLit(buf, ">\n");
     virBufferAdjustIndent(buf, 2);
 
     if (def->emulator ||
