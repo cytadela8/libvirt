@@ -681,6 +681,19 @@ libxlMakeDomBuildInfo(virDomainDefPtr def,
             return -1;
         }
 #endif
+        if (def->features[VIR_DOMAIN_FEATURE_XEN] == VIR_TRISTATE_SWITCH_ON) {
+            switch ((virTristateSwitch) def->xen_features[VIR_DOMAIN_XEN_GFX_PASSTHRU]) {
+                case VIR_TRISTATE_SWITCH_ON:
+                    libxl_defbool_set(&b_info->u.hvm.gfx_passthru, true);
+                    break;
+                case VIR_TRISTATE_SWITCH_OFF:
+                    libxl_defbool_set(&b_info->u.hvm.gfx_passthru, false);
+                    break;
+                case VIR_TRISTATE_SWITCH_ABSENT:
+                case VIR_TRISTATE_SWITCH_LAST:
+                    break;
+            }
+        }
     } else if (pvh) {
         b_info->cmdline = g_strdup(def->os.cmdline);
         b_info->kernel = g_strdup(def->os.kernel);

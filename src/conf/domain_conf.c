@@ -208,7 +208,8 @@ VIR_ENUM_IMPL(virDomainKVM,
 
 VIR_ENUM_IMPL(virDomainXen,
               VIR_DOMAIN_XEN_LAST,
-              "e820_host"
+              "e820_host",
+              "gfx_passthru"
 );
 
 VIR_ENUM_IMPL(virDomainMsrsUnknown,
@@ -20732,6 +20733,7 @@ virDomainDefParseXML(xmlDocPtr xml,
 
             switch ((virDomainXen) feature) {
                 case VIR_DOMAIN_XEN_E820_HOST:
+                case VIR_DOMAIN_XEN_GFX_PASSTHRU:
                     if (!(tmp = virXPathString("string(./@state)", ctxt))) {
                         virReportError(VIR_ERR_XML_ERROR,
                                        _("missing 'state' attribute for "
@@ -22952,6 +22954,7 @@ virDomainDefFeaturesCheckABIStability(virDomainDefPtr src,
         for (i = 0; i < VIR_DOMAIN_XEN_LAST; i++) {
             switch ((virDomainXen) i) {
             case VIR_DOMAIN_XEN_E820_HOST:
+            case VIR_DOMAIN_XEN_GFX_PASSTHRU:
                 if (src->xen_features[i] != dst->xen_features[i]) {
                     virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
                                    _("State of Xen feature '%s' differs: "
@@ -28495,6 +28498,7 @@ virDomainDefFormatFeatures(virBufferPtr buf,
             for (j = 0; j < VIR_DOMAIN_XEN_LAST; j++) {
                 switch ((virDomainXen) j) {
                 case VIR_DOMAIN_XEN_E820_HOST:
+                case VIR_DOMAIN_XEN_GFX_PASSTHRU:
                     if (def->xen_features[j])
                         virBufferAsprintf(&childBuf, "<%s state='%s'/>\n",
                                           virDomainXenTypeToString(j),
