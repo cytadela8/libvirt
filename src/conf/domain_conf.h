@@ -1867,6 +1867,7 @@ typedef enum {
 typedef enum {
     VIR_DOMAIN_XEN_E820_HOST = 0,
     VIR_DOMAIN_XEN_PASSTHROUGH,
+    VIR_DOMAIN_XEN_GFX_PASSTHRU,
 
     VIR_DOMAIN_XEN_LAST
 } virDomainXen;

@@ -2064,6 +2064,7 @@
   &lt;xen&gt;
     &lt;e820_host state='on'/&gt;
     &lt;passthrough state='on' mode='share_pt'/&gt;
+    &lt;gfx_passthru state='on'/&gt;
   &lt;/xen&gt;
   &lt;pvspinlock state='on'/&gt;
   &lt;gic version='2'/&gt;
@@ -2268,6 +2269,12 @@
           <td>passthrough</td>
           <td>Enable IOMMU mappings allowing PCI passthrough</td>
           <td>on, off; mode - optional string sync_pt or share_pt</td>
+          <td><span class="since">6.3.0</span></td>
+        </tr>
+        <tr>
+          <td>gfx_passthru</td>
+          <td>Enable Intel GPU specific quirks. Required and allowed only when passing an IGD.</td>
+          <td>on, off</td>
           <td><span class="since">6.3.0</span></td>
         </tr>
       </table>

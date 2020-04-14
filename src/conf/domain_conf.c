@@ -214,6 +214,7 @@ VIR_ENUM_IMPL(virDomainXen,
               VIR_DOMAIN_XEN_LAST,
               "e820_host",
               "passthrough",
+              "gfx_passthru"
 );
 
 VIR_ENUM_IMPL(virDomainXenPassthroughMode,
@@ -19649,6 +19650,7 @@ virDomainFeaturesDefParse(virDomainDefPtr def,
 
             switch ((virDomainXen) feature) {
                 case VIR_DOMAIN_XEN_E820_HOST:
+                case VIR_DOMAIN_XEN_GFX_PASSTHRU:
                     break;
 
             case VIR_DOMAIN_XEN_PASSTHROUGH:
@@ -23579,6 +23581,7 @@ virDomainDefFeaturesCheckABIStability(virDomainDefPtr src,
             }
             switch ((virDomainXen) i) {
             case VIR_DOMAIN_XEN_E820_HOST:
+            case VIR_DOMAIN_XEN_GFX_PASSTHRU:
                 break;
 
             case VIR_DOMAIN_XEN_PASSTHROUGH:
@@ -29235,6 +29238,7 @@ virDomainDefFormatFeatures(virBufferPtr buf,
 
                 switch ((virDomainXen) j) {
                 case VIR_DOMAIN_XEN_E820_HOST:
+                case VIR_DOMAIN_XEN_GFX_PASSTHRU:
                     virBufferAddLit(&childBuf, "/>\n");
                     break;
                 case VIR_DOMAIN_XEN_PASSTHROUGH:

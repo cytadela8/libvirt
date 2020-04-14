@@ -6409,6 +6409,11 @@
             </optional>
           </element>
         </optional>
+        <optional>
+          <element name="gfx_passthru">
+            <ref name="featurestate"/>
+          </element>
+        </optional>
       </interleave>
     </element>
   </define>
